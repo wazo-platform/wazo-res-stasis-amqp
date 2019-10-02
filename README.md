@@ -59,7 +59,7 @@ on your asterisk dialplan. For an application named 'bar'
 
 To activate the events on AMQP for your ARI application you need to use the ARI REST API endpoint.
 
-- Create a Stasis Application named 'bar'
+Create a Stasis Application named 'bar'
 
     POST with applicationName=bar
 
