@@ -1,5 +1,5 @@
-AMQP ARI support for Asterisk
------------------------------
+AMQP support for stasis in Asterisk
+-----------------------------------
 
 How does it works
 -----------------
