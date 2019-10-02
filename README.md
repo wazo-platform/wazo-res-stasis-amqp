@@ -1,3 +1,33 @@
+AMQP ARI support for Asterisk
+-----------------------------
+
+How does it works
+-----------------
+
+Asterisk receives 
+
+1. Client           2. Asterisk                     3. Receiver receives events
+  sends request       creates Application
+  application         and registers it to Stasis
+  
+4. Client receives 
+   response
+   
+ +--- stasis application
+ |
+ v                     |                                  |
+[client]-------------->|  topic --> (*)--> callback---+   |   
+                       |                    |    ^    |   |
+                       |                    |    |    +-->| ==== event ==> [RabbitMQ Exchange(s)]
+                       |                    v    |        |
+        <--------------|       event >>> Stasis -+        |
+
+
+To listening events, listen on routing key stasis.app.# for an application.
+
+How to install
+--------------
+
 To build the module you will need the following dependencies
 
 * asterisk-dev
@@ -20,11 +50,45 @@ To load module
 
     CLI> module load res_stasis_amqp.so
 
-Events is push for:
+How to use
+----------
 
-* channel in routing key `stasis.channel.<channel uniqueid>`
-* ari apps in routing key `stasis.app.<app name>`
-* ami in routing key `stasis.ami.<event name>`
+# ARI
+
+on your asterisk dialplan. For an application named 'bar'
+
+    exten = 6001,1,NoOp() 
+     same = n,Answer()
+     same = n,Stasis(bar) ; this will generate events which will be forwarded to stasis (websocket or AMQP)
+     same = n,Hangup()
+
+To activate the events on AMQP for your ARI application you need to use the ARI REST API endpoint.
+
+- Create a Stasis Application named 'bar'
+
+    POST with applicationName=bar
+
+This will create an internal application that will send events to AMQP
+
+To delete the application created above
+
+    DELETE with applicationName=bar
+
+This will delete the application, events will no longer be sent to AMQP
+
+Event is push on this routing key `stasis.app.<app name>`
+
+# AMI
+
+You don't need to anything for the configuration, all AMI events is pushed by default on rabbitmq
+
+Event is push on this routing key `stasis.ami.<event name>`
+
+# Channels
+
+You don't need to anything for the configuration, all channels events is pushed by default on rabbitmq
+
+Event is push on this routing key `stasis.channel.<channel uniqueid>`
 
 ##### Missing
 
