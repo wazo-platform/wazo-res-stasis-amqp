@@ -95,3 +95,10 @@ Event is push on this routing key `stasis.ami.<event name>`
 You don't need to anything for the configuration, all channels events is pushed by default on rabbitmq
 
 Event is push on this routing key `stasis.channel.<channel uniqueid>`
+
+Informations
+------------
+
+- If you register an application with the websocket, it's possible to disabled it by the amqp endpoint ARI.  
+- If you restart Asterisk you loose the application.
+- If you registering an application on the websocket with the same name of an application already registered with the AMQP events, the callback is on websocket.
