@@ -1,6 +1,9 @@
 AMQP support for stasis in Asterisk
 -----------------------------------
 
+Support asterisk with a latest wazo-platform version or Asterisk 16.5.0.
+
+
 How does it works
 -----------------
 
@@ -26,11 +29,19 @@ How to install
 To build the module you will need the following dependencies
 
 * asterisk-dev
-* wazo-res-amqp-dev
 * librabbitmq-dev
 
-To install
+Clone the amqp client repository:
 
+    cd /usr/src/
+    git clone https://github.com/wazo-pbx/wazo-res-amqp
+    make
+    make install
+
+Clone stasis amqp modules:
+
+    cd /usr/src/
+    git clone https://github.com/wazo-pbx/wazo-res-stasis-amqp
     make
     make install
     make samples
