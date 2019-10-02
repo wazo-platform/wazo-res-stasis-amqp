@@ -4,15 +4,12 @@ AMQP ARI support for Asterisk
 How does it works
 -----------------
 
-Asterisk receives 
+1. Client Sends request application via ARI
+2. Asterisk create application and registers it to Stasis
+3. Receiver receives events
+4. Client receives response via AMQP
 
-1. Client           2. Asterisk                     3. Receiver receives events
-  sends request       creates Application
-  application         and registers it to Stasis
-  
-4. Client receives 
-   response
-   
+```
  +--- stasis application
  |
  v                     |                                  |
@@ -21,9 +18,7 @@ Asterisk receives
                        |                    |    |    +-->| ==== event ==> [RabbitMQ Exchange(s)]
                        |                    v    |        |
         <--------------|       event >>> Stasis -+        |
-
-
-To listening events, listen on routing key stasis.app.# for an application.
+```
 
 How to install
 --------------
@@ -89,7 +84,3 @@ Event is push on this routing key `stasis.ami.<event name>`
 You don't need to anything for the configuration, all channels events is pushed by default on rabbitmq
 
 Event is push on this routing key `stasis.channel.<channel uniqueid>`
-
-##### Missing
-
-* Unsubscribe from Stasis functionality not yet implemented.
