@@ -657,6 +657,14 @@ int ast_subscribe_to_stasis(const char *app_name)
 
 static int load_module(void)
 {
+		
+	if (!ast_module_check("res_amqp.so")) {
+		if (ast_load_resource("res_amqp.so") != AST_MODULE_LOAD_SUCCESS) {
+			ast_log(LOG_ERROR, "Cannot load res_amqp, so res_stasis_amqp cannot be loaded\n");
+			return AST_MODULE_LOAD_DECLINE;
+		}
+	}
+	
 	if (load_config(0) != 0) {
 		ast_log(LOG_WARNING, "Configuration failed to load\n");
 		return AST_MODULE_LOAD_DECLINE;
