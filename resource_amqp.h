@@ -55,7 +55,9 @@ struct ast_ari_amqp_stasis_subscribe_args {
  * \param args Swagger parameters
  * \param[out] response HTTP response
  */
-void ast_ari_amqp_stasis_subscribe(struct ast_variable *headers, struct ast_ari_amqp_stasis_subscribe_args *args, struct ast_ari_response *response);
+void ast_ari_amqp_stasis_subscribe(struct ast_variable *headers,
+								   struct ast_ari_amqp_stasis_subscribe_args *args,
+								   struct ast_ari_response *response);
 /*! Argument struct for ast_ari_amqp_stasis_unsubscribe() */
 struct ast_ari_amqp_stasis_unsubscribe_args {
 	/*! Application's name */
