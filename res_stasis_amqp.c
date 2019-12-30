@@ -524,7 +524,7 @@ static int publish_to_amqp(const char *topic, const char *name, const struct ast
 
 	ast_assert(conf && conf->global &&conf->global->connection);
 
-	struct ast_amqp_connection *amqp = ast_amqp_get_connection(conf->global->connection);
+	struct ast_amqp_connection *amqp = ast_amqp_get_or_create_connection(conf->global->connection);
 	if (!amqp) {
 		ast_log(LOG_ERROR, "Failed to get an AMQP connection\n");
 		return -1;
