@@ -23,6 +23,8 @@ ASTETCDIR = $(INSTALL_PREFIX)/etc/asterisk
 SAMPLENAME = stasis_amqp.conf.sample
 CONFNAME = $(basename $(SAMPLENAME))
 
+ARI_OBJECTS = res_ari_amqp.o resource_amqp.o
+STASIS_OBJECTS = res_stasis_amqp.o
 TARGET = res_stasis_amqp.so res_ari_amqp.so
 CFLAGS += -I../asterisk-amqp
 CFLAGS += -DHAVE_STDINT_H=1
@@ -53,14 +55,16 @@ install: all
 	@echo " +-------------------------------------------+"
 
 clean:
+	rm -f $(ARI_OBJECTS)
+	rm -f $(STASIS_OBJECTS)
 	rm -f $(TARGET)
 
 samples:
 	$(INSTALL) -m 644 $(SAMPLENAME) $(DESTDIR)$(ASTETCDIR)/$(CONFNAME)
 	@echo " ------- res_stasis_amqp config installed ---------"
 
-res_ari_amqp.so: res_ari_amqp.o resource_amqp.o
+res_ari_amqp.so: $(ARI_OBJECTS)
 	$(CC) $(LDFLAGS)  -o $@ $^ $(LIBS)
 
-res_stasis_amqp.so: res_stasis_amqp.o
+res_stasis_amqp.so: $(STASIS_OBJECTS)
 	$(CC) $(LDFLAGS)  -o $@ $^ $(LIBS)
