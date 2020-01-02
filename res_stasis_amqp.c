@@ -315,8 +315,6 @@ static void stasis_amqp_message_handler(void *data, const char *app_name,
 	}
 
 	publish_to_amqp(routing_key, "stasis_app", NULL, message);
-
-	return;
 }
 
 
@@ -429,9 +427,7 @@ static int stasis_amqp_channel_log(struct stasis_message *message)
 		return -1;
 	}
 
-	publish_to_amqp(routing_key, "stasis_channel", stasis_message_eid(message), json);
-
-	return 0;
+	return publish_to_amqp(routing_key, "stasis_channel", stasis_message_eid(message), json);
 }
 
 struct ast_eid *eid_copy(const struct ast_eid *eid)
@@ -447,6 +443,22 @@ struct ast_eid *eid_copy(const struct ast_eid *eid)
 		new->eid[i] = eid->eid[i];
 	}
 	return new;
+}
+
+static int cxn_create_handler(struct ast_amqp_connection *amqp)
+{
+	RAII_VAR(struct stasis_amqp_conf *, conf, NULL, ao2_cleanup);
+
+	conf = ao2_global_obj_ref(confs);
+
+	ast_assert(conf && conf->global && conf->global);
+
+	if (strlen(conf->global->exchange) > 0) {
+		ast_log(LOG_DEBUG, "declare exchange for newly connection\n");
+		return ast_amqp_declare_exchange(amqp, conf->global->exchange, "topic");
+	}
+
+	return 0;
 }
 
 static int publish_to_amqp(const char *topic, const char *name, const struct ast_eid *eid,
@@ -514,9 +526,9 @@ static int publish_to_amqp(const char *topic, const char *name, const struct ast
 
 	conf = ao2_global_obj_ref(confs);
 
-	ast_assert(conf && conf->global &&conf->global->connection);
+	ast_assert(conf && conf->global && conf->global->connection);
 
-	struct ast_amqp_connection *amqp = ast_amqp_get_or_create_connection(conf->global->connection);
+	struct ast_amqp_connection *amqp = ast_amqp_get_or_create_connection(conf->global->connection, cxn_create_handler);
 	if (!amqp) {
 		ast_log(LOG_ERROR, "Failed to get an AMQP connection\n");
 		return -1;
@@ -593,8 +605,6 @@ static void stasis_app_message_handler(void *data, const char *app_name,
 	}
 
 	publish_to_amqp(routing_key, "stasis_app", NULL, message);
-
-	return;
 }
 
 int register_to_new_stasis_app(const void *data)
