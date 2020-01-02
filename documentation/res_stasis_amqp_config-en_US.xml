@@ -12,12 +12,6 @@
 						<para>Specifies the name of the connection from amqp.conf to use</para>
 					</description>
 				</configOption>
-				<configOption name="queue">
-					<synopsis>Name of the queue to post to</synopsis>
-					<description>
-						<para>Defaults to asterisk_stasis</para>
-					</description>
-				</configOption>
 				<configOption name="exchange">
 					<synopsis>Name of the exchange to post to</synopsis>
 					<description>
