@@ -120,7 +120,8 @@ struct stasis_amqp_global_conf {
 								 /*! \brief connection name */
 								 AST_STRING_FIELD(connection);
 								 /*! \brief exchange name */
-								 AST_STRING_FIELD(exchange););
+								 AST_STRING_FIELD(exchange);
+		);
 };
 
 /*! \brief Locking container for safe configuration access. */
@@ -427,7 +428,8 @@ static int stasis_amqp_channel_log(struct stasis_message *message)
 		return -1;
 	}
 
-	return publish_to_amqp(routing_key, "stasis_channel", stasis_message_eid(message), json);
+	return publish_to_amqp(routing_key, "stasis_channel", stasis_message_eid(message),
+						   json);
 }
 
 struct ast_eid *eid_copy(const struct ast_eid *eid)
@@ -451,7 +453,7 @@ static int cxn_create_handler(struct ast_amqp_connection *amqp)
 
 	conf = ao2_global_obj_ref(confs);
 
-	ast_assert(conf && conf->global && conf->global);
+	ast_assert(conf && conf->global &&conf->global);
 
 	if (strlen(conf->global->exchange) > 0) {
 		ast_log(LOG_DEBUG, "declare exchange for newly connection\n");
@@ -526,9 +528,10 @@ static int publish_to_amqp(const char *topic, const char *name, const struct ast
 
 	conf = ao2_global_obj_ref(confs);
 
-	ast_assert(conf && conf->global && conf->global->connection);
+	ast_assert(conf && conf->global &&conf->global->connection);
 
-	struct ast_amqp_connection *amqp = ast_amqp_get_or_create_connection(conf->global->connection, cxn_create_handler);
+	struct ast_amqp_connection *amqp =
+		ast_amqp_get_or_create_connection(conf->global->connection, cxn_create_handler);
 	if (!amqp) {
 		ast_log(LOG_ERROR, "Failed to get an AMQP connection\n");
 		return -1;
