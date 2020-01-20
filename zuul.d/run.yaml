@@ -1,0 +1,13 @@
+---
+- hosts: all
+  tasks:
+    - name: Run the integration tests # noqa 301
+      shell: >
+        set -x &&
+        mkdir -p .tox &&
+        virtualenv -p python3 .tox/integration &&
+        . .tox/integration/bin/activate &&
+        pip install -r integration_tests/test-requirements.txt &&
+        make -C integration_tests test-setup test
+      args:
+        chdir: "{{ zuul.project.src_dir }}"
