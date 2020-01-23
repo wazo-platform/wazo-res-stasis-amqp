@@ -1,3 +1,9 @@
+wazo-res-stasis-amqp (0.0.3-1) wazo-dev-stretch; urgency=medium
+
+  * fix ari resources file permissions
+
+ -- Wazo Maintainers <dev+pkg@wazo.community>  Wed, 22 jan 2020 09:36:59 -0400
+
 wazo-res-stasis-amqp (0.0.3) wazo-dev-stretch; urgency=medium
 
   * update for asterisk 16
