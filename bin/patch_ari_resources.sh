@@ -15,4 +15,5 @@ fi
 patched_resources_filename=$(mktemp)
 
 jq '.apis[.apis | length] |= . + {"path": "/api-docs/amqp.{format}", "description": "AMQP resource"}' "${RESOURCES_FILENAME}" > "${patched_resources_filename}"
+chmod 0644 "${patched_resources_filename}"
 mv "${patched_resources_filename}" "${RESOURCES_FILENAME}"
