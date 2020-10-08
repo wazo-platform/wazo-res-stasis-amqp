@@ -1,7 +1,7 @@
 version: "3.7"
 services:
   sync:
-    image: wazopbx/wait
+    image: wazoplatform/wait
     environment:
       TIMEOUT: "${INTEGRATION_TEST_TIMEOUT}"
 
