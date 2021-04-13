@@ -10,8 +10,8 @@
     check:
       jobs:
         - wazo-res-stasis-amqp-integration:
-            nodeset: debian10-vm
+            nodeset: vm-debian-10-m1s
     gate:
       jobs:
         - wazo-res-stasis-amqp-integration:
-            nodeset: debian10-vm
+            nodeset: vm-debian-10-m1s
