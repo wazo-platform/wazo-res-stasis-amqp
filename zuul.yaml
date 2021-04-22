@@ -9,9 +9,7 @@
       - debian-packaging-template
     check:
       jobs:
-        - wazo-res-stasis-amqp-integration:
-            nodeset: debian10-vm
+        - wazo-res-stasis-amqp-integration
     gate:
       jobs:
-        - wazo-res-stasis-amqp-integration:
-            nodeset: debian10-vm
+        - wazo-res-stasis-amqp-integration
