@@ -1,4 +1,4 @@
-# Copyright 2019 The Wazo Authors  (see the AUTHORS file)
+# Copyright 2019-2021 The Wazo Authors  (see the AUTHORS file)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import ari as ari_client
@@ -40,7 +40,7 @@ def ari():
     AssetLauncher.kill_containers()
     AssetLauncher.rm_containers()
     AssetLauncher.launch_service_with_asset()
-    ari_url = 'http://localhost:{port}'.format(port=AssetLauncher.service_port(5039, 'ari_amqp'))
+    ari_url = 'http://127.0.0.1:{port}'.format(port=AssetLauncher.service_port(5039, 'ari_amqp'))
     client = until.return_(ari_client.connect, ari_url, 'wazo', 'wazo', timeout=5, interval=0.1)
 
     # necessary because RabbitMQ starts much more slowly, so module fails to load automatically
