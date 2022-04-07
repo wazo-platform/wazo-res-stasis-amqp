@@ -380,7 +380,7 @@ static void stasis_amqp_message_handler(void *data, const char *app_name, struct
 		return;
 	}
 
-	if (ast_json_object_set(stasis_event, "application_name", ast_json_string_create(app_name))) {
+	if (ast_json_object_set(stasis_event, "application", ast_json_string_create(app_name))) {
 		ast_log(LOG_ERROR, "unable to set application item in json");
 		return;
 	}
