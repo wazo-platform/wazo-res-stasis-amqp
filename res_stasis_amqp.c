@@ -1,7 +1,7 @@
 /*
  * Asterisk -- An open source telephony toolkit.
  *
- * Copyright 2013-2019 The Wazo Authors  (see the AUTHORS file)
+ * Copyright 2013-2022 The Wazo Authors  (see the AUTHORS file)
  *
  * David M. Lee, II <dlee@digium.com>
  *
@@ -311,11 +311,40 @@ static int manager_event_to_json(struct ast_json *json, const char *event_name, 
 	return 0;
 }
 
-static void stasis_amqp_message_handler(void *data, const char *app_name, struct ast_json *message)
+static void stasis_amqp_message_handler(void *data, const char *app_name, struct ast_json *stasis_event)
 {
-	ast_debug(4, "called stasis amqp handler for application: '%s'\n", app_name);
+	RAII_VAR(struct ast_json *, bus_event, NULL, ast_json_unref);
 	RAII_VAR(char *, routing_key, NULL, ast_free);
 	const char *routing_key_prefix = "stasis.app";
+	const char *event_name = ast_json_object_string_get(stasis_event, "type");
+
+	ast_debug(4, "called stasis amqp handler for application: '%s'\n", app_name);
+
+	if (!event_name) {
+		ast_debug(5, "ignoring stasis event with no type\n");
+		return;
+	}
+
+	bus_event = ast_json_object_create();
+	if (!bus_event) {
+		ast_log(LOG_ERROR, "failed to create json object\n");
+		return;
+	}
+
+	if (ast_json_object_set(bus_event, "name", ast_json_string_create(event_name))) {
+		ast_log(LOG_ERROR, "failed to set name on bus message\n");
+		return;
+	}
+
+	if (ast_json_object_set(bus_event, "data", stasis_event)) {
+		ast_log(LOG_ERROR, "failed to add stasis message to bus event payload\n");
+		return;
+	}
+
+	if (ast_json_object_set(stasis_event, "application_name", ast_json_string_create(app_name))) {
+		ast_log(LOG_ERROR, "unable to set application item in json");
+		return;
+	}
 
 	if (!(routing_key = new_routing_key(routing_key_prefix, app_name))) {
 		return;
@@ -323,11 +352,7 @@ static void stasis_amqp_message_handler(void *data, const char *app_name, struct
 
 	ast_debug(3, "publishing with routing key: '%s'\n", routing_key);
 
-	if (ast_json_object_set(message, "application", ast_json_string_create(app_name))) {
-		ast_log(LOG_ERROR, "unable to set application item in json");
-	}
-
-	publish_to_amqp(routing_key, "stasis_app", NULL, message);
+	publish_to_amqp(routing_key, "stasis_app", NULL, bus_event);
 
 	return;
 }
@@ -599,6 +624,7 @@ static int unload_module(void)
 	return 0;
 }
 
+// This function is unused
 static void stasis_app_message_handler(void *data, const char *app_name, struct ast_json *message)
 {
 	RAII_VAR(char *, routing_key, NULL, ast_free);
@@ -613,6 +639,7 @@ static void stasis_app_message_handler(void *data, const char *app_name, struct 
 	return;
 }
 
+// This function is unused
 int register_to_new_stasis_app(const void *data)
 {
 	struct ao2_container *apps;
