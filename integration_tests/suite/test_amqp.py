@@ -65,37 +65,52 @@ def test_stasis_amqp_events(ari):
     assert_that(ari.applications.list(), has_item(has_entry('name', real_app)))
     assert_that(ari.applications.list(), has_item(has_entry('name', parasite_app)))
 
-    bus_client = BusClient.from_connection_fields(port=AssetLauncher.service_port(5672, 'rabbitmq'))
+    bus_client = BusClient.from_connection_fields(
+        port=AssetLauncher.service_port(5672, 'rabbitmq'),
+        exchange_type='headers',
+    )
 
     assert bus_client.is_up()
 
-    events = bus_client.accumulator("stasis.app." + real_app.lower())
-    parasite_events = bus_client.accumulator("stasis.app." + parasite_app.lower())
+    accumulator = bus_client.accumulator(headers={
+        'category': 'stasis',
+        'application_name': real_app,
+        'x-match': 'all',
+    })
+    parasite_accumulator = bus_client.accumulator(headers={
+        'category': 'stasis',
+        'application_name': parasite_app,
+        'x-match': 'all',
+    })
 
     ari.channels.originate(endpoint='local/3000@default', app=real_app)
     ari.channels.originate(endpoint='local/3000@default', app=parasite_app)
 
-    def event_received(events, app):
-        assert_that(events.accumulate(), only_contains(
-            has_entry('application', app)
+    def event_received():
+        events = accumulator.accumulate(with_headers=True)
+        assert_that(events, only_contains(
+            has_entries(
+                headers=has_entries(application_name=real_app, category='stasis'),
+                message=has_entries(data=has_entries(application=real_app)),
+            ),
         ))
 
-        assert_that(parasite_events.accumulate(), only_contains(
-            has_entry('application', is_not(app))
+        assert_that(parasite_accumulator.accumulate(), only_contains(
+            has_entries(data=has_entries(application=is_not(real_app))),
         ))
 
-    until.assert_(event_received, events, real_app, timeout=5)
+    until.assert_(event_received, timeout=5)
 
-    def event_received(events, app):
-        assert_that(events.accumulate(), only_contains(
-            has_entry('application', app)
+    def event_received():
+        assert_that(accumulator.accumulate(), only_contains(
+            has_entries(data=has_entries(application=real_app))
         ))
 
-        assert_that(parasite_events.accumulate(), only_contains(
-            has_entry('application', is_not(app))
+        assert_that(parasite_accumulator.accumulate(), only_contains(
+            has_entries(data=has_entries(application=is_not(real_app)))
         ))
 
-    until.assert_(event_received, events, real_app, timeout=5)
+    until.assert_(event_received, timeout=5)
 
 
 def test_stasis_amqp_events_bad_routing(ari):
@@ -104,18 +119,25 @@ def test_stasis_amqp_events_bad_routing(ari):
     ari.amqp.stasisSubscribe(applicationName=real_app)
     ari.amqp.stasisSubscribe(applicationName=parasite_app)
 
-    bus_client = BusClient.from_connection_fields(port=AssetLauncher.service_port(5672, 'rabbitmq'))
+    bus_client = BusClient.from_connection_fields(
+        port=AssetLauncher.service_port(5672, 'rabbitmq'),
+        exchange_type='headers',
+    )
 
     assert bus_client.is_up()
 
-    events = bus_client.accumulator("stasis.app." + parasite_app.lower())
+    accumulator = bus_client.accumulator(headers={
+        'category': 'stasis',
+        'application_name': parasite_app,
+        'x-match': 'all',
+    })
 
     ari.channels.originate(endpoint='local/3000@default', app=real_app.lower())
 
-    def event_received(events, app):
-        assert_that(events.accumulate(), empty())
+    def event_received():
+        assert_that(accumulator.accumulate(), empty())
 
-    until.assert_(event_received, events, subscribe_args[app_name_key], timeout=5)
+    until.assert_(event_received, timeout=5)
 
 
 def test_app_subscribe(ari):
