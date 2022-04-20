@@ -592,6 +592,8 @@ static int publish_to_amqp_with_headers(struct ast_json *body, char **headers)
 		}
 	}
 
+	ast_debug(5, "publishing amqp event with headers: %s\n", msg);
+
 	if (ast_amqp_basic_publish(
 		conn,
 		amqp_cstring_bytes(conf->global->exchange),
