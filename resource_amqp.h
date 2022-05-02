@@ -1,9 +1,9 @@
 /*
  * Asterisk -- An open source telephony toolkit.
  *
- * Copyright (C) 2019 The Wazo Authors  (see the AUTHORS file)
+ * Copyright (C) 2019-2022 The Wazo Authors  (see the AUTHORS file)
  *
- * Nicolaos Ballas
+ * Wazo
  *
  * See http://www.asterisk.org for more information about
  * the Asterisk project. Please do not directly contact
@@ -21,9 +21,9 @@
  * \brief Generated file - declares stubs to be implemented in
  * res/ari/resource_amqp.c
  *
- * AMQP resources
+ * AMQP resource
  *
- * \author Nicolaos Ballas
+ * \author Wazo
  */
 
 /*
@@ -39,8 +39,6 @@
 
 #include "asterisk/ari.h"
 
-int ast_subscribe_to_stasis(const char *app_name);
-
 /*! Argument struct for ast_ari_amqp_stasis_subscribe() */
 struct ast_ari_amqp_stasis_subscribe_args {
 	/*! Application's name */
@@ -49,7 +47,7 @@ struct ast_ari_amqp_stasis_subscribe_args {
 /*!
  * \brief Create a stasis subscription to AMQP.
  *
- * Create a Stasis application and subscribe to it's event and forward them to AMQP. The application's name must be unique.
+ * Create a Stasis application and subscribe to its events and forward them to AMQP. The application's name must be unique.
  *
  * \param headers HTTP headers
  * \param args Swagger parameters
@@ -61,5 +59,15 @@ struct ast_ari_amqp_stasis_unsubscribe_args {
 	/*! Application's name */
 	const char *application_name;
 };
+/*!
+ * \brief Delete a stasis subscription to AMQP.
+ *
+ * Delete a Stasis application and subscribe to its events and forward them to AMQP. The application's name must be unique.
+ *
+ * \param headers HTTP headers
+ * \param args Swagger parameters
+ * \param[out] response HTTP response
+ */
+void ast_ari_amqp_stasis_unsubscribe(struct ast_variable *headers, struct ast_ari_amqp_stasis_unsubscribe_args *args, struct ast_ari_response *response);
 
 #endif /* _ASTERISK_RESOURCE_AMQP_H */
