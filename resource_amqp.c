@@ -56,5 +56,13 @@ void ast_ari_amqp_stasis_unsubscribe(struct ast_variable *headers,
 	struct ast_ari_amqp_stasis_unsubscribe_args *args,
 	struct ast_ari_response *response)
 {
-	ast_log(LOG_ERROR, "TODO: ast_ari_amqp_stasis_unsubscribe\n");
+	const char *app_name = args->application_name;
+
+	if (!app_name) {
+		ast_ari_response_error(response, 400, "Invalid argument", "No application specified");
+		return;
+	}
+
+	ast_unsubscribe_from_stasis(app_name);
+	ast_ari_response_no_content(response);
 }
