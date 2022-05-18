@@ -1,9 +1,9 @@
 /*
  * Asterisk -- An open source telephony toolkit.
  *
- * Copyright (C) 2019 The Wazo Authors  (see the AUTHORS file)
+ * Copyright (C) 2019-2022 The Wazo Authors  (see the AUTHORS file)
  *
- * Nicolaos Ballas
+ * Wazo
  *
  * See http://www.asterisk.org for more information about
  * the Asterisk project. Please do not directly contact
@@ -18,9 +18,9 @@
 
 /*! \file
  *
- * \brief /api-docs/amqp.{format} implementation- AMQP resources
+ * \brief /api-docs/amqp.{format} implementation- AMQP resource
  *
- * \author Nicolaos Ballas
+ * \author Wazo
  */
 
 #include "asterisk.h"
@@ -28,6 +28,7 @@
 #include "resource_amqp.h"
 #include "asterisk/stasis_app.h"
 #include "asterisk/stasis_amqp.h"
+
 
 void ast_ari_amqp_stasis_subscribe(struct ast_variable *headers,
 	struct ast_ari_amqp_stasis_subscribe_args *args,
@@ -48,5 +49,20 @@ void ast_ari_amqp_stasis_subscribe(struct ast_variable *headers,
 		ast_ari_response_error(response, 500, "Error", "Unable to allocate json");
 		return;
 	}
+	ast_ari_response_no_content(response);
+}
+
+void ast_ari_amqp_stasis_unsubscribe(struct ast_variable *headers,
+	struct ast_ari_amqp_stasis_unsubscribe_args *args,
+	struct ast_ari_response *response)
+{
+	const char *app_name = args->application_name;
+
+	if (!app_name) {
+		ast_ari_response_error(response, 400, "Invalid argument", "No application specified");
+		return;
+	}
+
+	ast_unsubscribe_from_stasis(app_name);
 	ast_ari_response_no_content(response);
 }

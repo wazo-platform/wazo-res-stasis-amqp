@@ -655,6 +655,13 @@ int ast_subscribe_to_stasis(const char *app_name)
 	return res;
 }
 
+int ast_unsubscribe_from_stasis(const char *app_name)
+{
+	ast_debug(1, "called unsubscribe from stasis for application: '%s'\n", app_name);
+	stasis_app_unregister(app_name);
+	return 0;
+}
+
 static int load_module(void)
 {
 	if (load_config(0) != 0) {

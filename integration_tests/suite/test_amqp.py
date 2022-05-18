@@ -1,4 +1,4 @@
-# Copyright 2019-2021 The Wazo Authors  (see the AUTHORS file)
+# Copyright 2019-2022 The Wazo Authors  (see the AUTHORS file)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import ari as ari_client
@@ -10,6 +10,7 @@ from hamcrest import (
     calling,
     empty,
     has_entry,
+    has_entries,
     has_item,
     is_not,
     not_,
@@ -126,13 +127,14 @@ def test_app_subscribe(ari):
     assert_that(ari.applications.list(), has_item(has_entry('name', subscribe_args[app_name_key])))
 
 
-@pytest.mark.skip(reason='not implemented')
 def test_app_unsubscribe(ari):
-    """
-    Test passes, but operation does not work for now; a tiny Asterisk patch is required.
-    """
-    ari.amqp.stasisSubscribe(**subscribe_args)
+    app_name = 'my-test-app'
+    ari.amqp.stasisSubscribe(applicationName=app_name)
+
     assert_that(
-        calling(ari.amqp.stasisUnsubscribe).with_args(**subscribe_args),
+        calling(ari.amqp.stasisUnsubscribe).with_args(applicationName=app_name),
         not_(raises(Exception))
     )
+
+    applications = ari.applications.list()
+    assert_that(applications, not_(has_item(has_entries(name=app_name))))
