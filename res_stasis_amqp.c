@@ -754,56 +754,6 @@ static int unload_module(void)
 	return 0;
 }
 
-// This function is unused
-static void stasis_app_message_handler(void *data, const char *app_name, struct ast_json *message)
-{
-	RAII_VAR(char *, routing_key, NULL, ast_free);
-	const char *routing_key_prefix = "stasis.app";
-
-	if (!(routing_key = new_routing_key(routing_key_prefix, app_name))) {
-		return;
-	}
-
-	publish_to_amqp(routing_key, "stasis_app", NULL, message);
-
-	return;
-}
-
-// This function is unused
-int register_to_new_stasis_app(const void *data)
-{
-	struct ao2_container *apps;
-	struct ao2_iterator it_apps;
-	char *app;
-	int res = 0;
-
-	if (ast_sched_add(stasis_app_sched_context, 1000, register_to_new_stasis_app, NULL) == -1) {
-		ast_log(LOG_ERROR, "failed to reschedule the stasis app registration\n");
-		return -1;
-	}
-
-	/* Subscription to receive all of the messages from ari applications registered */
-	if (!(apps = stasis_app_get_all())) {
-		ast_log(LOG_ERROR, "Unable to retrieve registered applications!\n");
-		return -1;
-	}
-
-	it_apps = ao2_iterator_init(apps, 0);
-	while ((app = ao2_iterator_next(&it_apps))) {
-		struct app *new_app = allocate_app(app);
-		if (ao2_find(registered_apps, new_app, OBJ_SEARCH_OBJECT)) {
-			continue;
-		}
-		ao2_link(registered_apps, new_app);
-		stasis_app_register_all(app, &stasis_app_message_handler, NULL);
-		ao2_ref(app, -1);
-	}
-	ao2_iterator_destroy(&it_apps);
-	ao2_ref(apps, -1);
-
-	return res;
-}
-
 int ast_subscribe_to_stasis(const char *app_name)
 {
 	int res = 0;
