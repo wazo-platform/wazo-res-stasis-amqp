@@ -259,7 +259,7 @@ static int setup_amqp(void)
  *              topics.
  * \param message The message itself.
  */
-static void send_channel_event_to_amqp(void *data, struct stasis_subscription *sub,
+static void stasis_channel_event_handler(void *data, struct stasis_subscription *sub,
 	struct stasis_message *message)
 {
 	if (stasis_subscription_final_message(sub, message)) {
@@ -351,7 +351,7 @@ int destroy_stasis_event_headers(char **headers)
 	return 0;
 }
 
-static void stasis_amqp_message_handler(void *data, const char *app_name, struct ast_json *stasis_event)
+static void stasis_app_event_handler(void *data, const char *app_name, struct ast_json *stasis_event)
 {
 	RAII_VAR(struct ast_json *, bus_event, NULL, ast_json_unref);
 	RAII_VAR(char *, routing_key, NULL, ast_free);
@@ -409,7 +409,7 @@ static void stasis_amqp_message_handler(void *data, const char *app_name, struct
  *              topics.
  * \param message The message itself.
  */
-static void send_ami_event_to_amqp(void *data, struct stasis_subscription *sub,
+static void ami_event_handler(void *data, struct stasis_subscription *sub,
 									struct stasis_message *message)
 {
 	RAII_VAR(struct ast_json *, json, NULL, ast_json_unref);
@@ -758,7 +758,7 @@ int ast_subscribe_to_stasis(const char *app_name)
 {
 	int res = 0;
 	ast_debug(1, "called subscribe to stasis for application: '%s'\n", app_name);
-	res = stasis_app_register(app_name, &stasis_amqp_message_handler, NULL);
+	res = stasis_app_register(app_name, &stasis_app_event_handler, NULL);
 	return res;
 }
 
@@ -777,7 +777,7 @@ static int load_module(void)
 	}
 
 	/* Subscription to receive all of the messages from manager topic */
-	manager = stasis_subscribe(ast_manager_get_topic(), send_ami_event_to_amqp, NULL);
+	manager = stasis_subscribe(ast_manager_get_topic(), ami_event_handler, NULL);
 	if (!manager) {
 		return AST_MODULE_LOAD_DECLINE;
 	}
@@ -789,7 +789,7 @@ static int load_module(void)
 	}
 
 	/* Subscription to receive all of the messages from channel topic */
-	sub = stasis_subscribe(ast_channel_topic_all(), send_channel_event_to_amqp, NULL);
+	sub = stasis_subscribe(ast_channel_topic_all(), stasis_channel_event_handler, NULL);
 	if (!sub) {
 		/* unsubscribe from manager */
 		return AST_MODULE_LOAD_DECLINE;
