@@ -104,7 +104,6 @@ int app_cmp(void *obj, void *arg, int flags);
 struct app *allocate_app(const char *name);
 void destroy_app(void *obj);
 static int setup_amqp(void);
-static int stasis_amqp_channel_log(struct stasis_message *message);
 static int publish_to_amqp(const char *topic, const char *name, const struct ast_eid *eid, struct ast_json *body);
 static int publish_to_amqp_with_headers(struct ast_json *body, char **headers);
 int register_to_new_stasis_app(const void *data);
@@ -262,12 +261,34 @@ static int setup_amqp(void)
 static void stasis_channel_event_handler(void *data, struct stasis_subscription *sub,
 	struct stasis_message *message)
 {
+	RAII_VAR(struct ast_json *, json, NULL, ast_json_free);
+	RAII_VAR(struct ast_json *, channel, NULL, ast_json_free);
+	RAII_VAR(struct ast_json *, unique_id, NULL, ast_json_free);
+	RAII_VAR(char *, routing_key, NULL, ast_free);
+	const char *routing_key_prefix = "stasis.channel";
+
 	if (stasis_subscription_final_message(sub, message)) {
 		return;
 	}
 
-	stasis_amqp_channel_log(message);
+	if (!(json = stasis_message_to_json(message, NULL))) {
+		return;
+	}
 
+	if (!(channel = ast_json_object_get(json, "channel"))) {
+		return;
+	}
+
+
+	if (!(unique_id = ast_json_object_get(channel, "id"))) {
+		return;
+	}
+
+	if (!(routing_key = new_routing_key(routing_key_prefix, ast_json_string_get(unique_id)))) {
+		return;
+	}
+
+	publish_to_amqp(routing_key, "stasis_channel", stasis_message_eid(message), json);
 }
 
 static int manager_event_to_json(struct ast_json *json, const char *event_name, char *fields)
@@ -474,42 +495,6 @@ char *new_routing_key(const char *prefix, const char *suffix)
 	return routing_key;
 }
 
-/*!
- * \brief Channel handler for AMQP.
- *
- * \param message to Log.
- * \return 0 on success.
- * \return -1 on error.
- */
-static int stasis_amqp_channel_log(struct stasis_message *message)
-{
-	RAII_VAR(struct ast_json *, json, NULL, ast_json_free);
-	RAII_VAR(struct ast_json *, channel, NULL, ast_json_free);
-	RAII_VAR(struct ast_json *, unique_id, NULL, ast_json_free);
-	RAII_VAR(char *, routing_key, NULL, ast_free);
-	const char *routing_key_prefix = "stasis.channel";
-
-	if (!(json = stasis_message_to_json(message, NULL))) {
-		return -1;
-	}
-
-	if (!(channel = ast_json_object_get(json, "channel"))) {
-		return -1;
-	}
-
-
-	if (!(unique_id = ast_json_object_get(channel, "id"))) {
-		return -1;
-	}
-
-	if (!(routing_key = new_routing_key(routing_key_prefix, ast_json_string_get(unique_id)))) {
-		return -1;
-	}
-
-	publish_to_amqp(routing_key, "stasis_channel", stasis_message_eid(message), json);
-
-	return 0;
-}
 
 struct ast_eid *eid_copy(const struct ast_eid *eid)
 {
