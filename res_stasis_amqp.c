@@ -88,6 +88,7 @@
 
 #define CONF_FILENAME "stasis_amqp.conf"
 #define ROUTING_KEY_LEN 256
+#define STASIS_EVENT_HEADER_COUNT 3
 
 /*!
  * The ast_sched_context used for stasis application polling
@@ -316,24 +317,21 @@ static int manager_event_to_json(struct ast_json *json, const char *event_name, 
 
 char **create_stasis_event_headers(const char *app_name, const char *event_name, const char *category)
 {
-	char **headers = ast_calloc(4, sizeof(char *));
+	char **headers = ast_calloc(STASIS_EVENT_HEADER_COUNT, sizeof(char *));
 	if (!headers) {
 		return NULL;
 	}
 
 	if (ast_asprintf(&headers[0], "%s: %s", "application_name", app_name) < 0) {
-		ast_free(headers);
+		destroy_stasis_event_headers(headers);
 		return NULL;
 	}
 	if (ast_asprintf(&headers[1], "%s: %s", "name", event_name) < 0) {
-		ast_free(headers[0]);
-		ast_free(headers);
+		destroy_stasis_event_headers(headers);
 		return NULL;
 	}
 	if(ast_asprintf(&headers[2], "%s: %s", "category", category) < 0) {
-		ast_free(headers[1]);
-		ast_free(headers[0]);
-		ast_free(headers);
+		destroy_stasis_event_headers(headers);
 		return NULL;
 	}
 
@@ -342,9 +340,12 @@ char **create_stasis_event_headers(const char *app_name, const char *event_name,
 
 int destroy_stasis_event_headers(char **headers)
 {
-	ast_free(headers[2]);
-	ast_free(headers[1]);
-	ast_free(headers[0]);
+	for (int i = 0; i < STASIS_EVENT_HEADER_COUNT; ++i) {
+		if (headers[i]) {
+			ast_free(headers[i]);
+			headers[i] = NULL;
+		}
+	}
 	ast_free(headers);
 
 	return 0;
