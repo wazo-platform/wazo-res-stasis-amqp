@@ -50,12 +50,6 @@
 						<para>Specifies the name of the connection from amqp.conf to use</para>
 					</description>
 				</configOption>
-				<configOption name="queue">
-					<synopsis>Name of the queue to post to</synopsis>
-					<description>
-						<para>Defaults to asterisk_stasis</para>
-					</description>
-				</configOption>
 				<configOption name="exchange">
 					<synopsis>Name of the exchange to post to</synopsis>
 					<description>
@@ -127,8 +121,6 @@ struct stasis_amqp_global_conf {
 	AST_DECLARE_STRING_FIELDS(
 		/*! \brief connection name */
 		AST_STRING_FIELD(connection);
-		/*! \brief queue name */
-		AST_STRING_FIELD(queue);
 		/*! \brief exchange name */
 		AST_STRING_FIELD(exchange);
 	);
@@ -746,9 +738,6 @@ static int load_config(int reload)
 	aco_option_register(&cfg_info, "connection", ACO_EXACT,
 		global_options, "", OPT_STRINGFIELD_T, 0,
 		STRFLDSET(struct stasis_amqp_global_conf, connection));
-	aco_option_register(&cfg_info, "queue", ACO_EXACT,
-		global_options, "asterisk_stasis", OPT_STRINGFIELD_T, 0,
-		STRFLDSET(struct stasis_amqp_global_conf, queue));
 	aco_option_register(&cfg_info, "exchange", ACO_EXACT,
 		global_options, "", OPT_STRINGFIELD_T, 0,
 		STRFLDSET(struct stasis_amqp_global_conf, exchange));
