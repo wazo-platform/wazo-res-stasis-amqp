@@ -88,7 +88,6 @@
 
 #define CONF_FILENAME "stasis_amqp.conf"
 #define ROUTING_KEY_LEN 256
-#define STASIS_EVENT_HEADER_COUNT 3
 
 /*!
  * The ast_sched_context used for stasis application polling
@@ -110,7 +109,7 @@ int register_to_new_stasis_app(const void *data);
 char *new_routing_key(const char *prefix, const char *suffix);
 struct ast_eid *eid_copy(const struct ast_eid *eid);
 char **create_stasis_event_headers(const char *app_name, const char *event_name, const char *category);
-int destroy_stasis_event_headers(char **headers);
+void destroy_stasis_event_headers(char **headers);
 
 
 /*! \brief stasis_amqp configuration */
@@ -261,11 +260,10 @@ static int setup_amqp(void)
 static void stasis_channel_event_handler(void *data, struct stasis_subscription *sub,
 	struct stasis_message *message)
 {
-	RAII_VAR(struct ast_json *, json, NULL, ast_json_free);
-	RAII_VAR(struct ast_json *, channel, NULL, ast_json_free);
-	RAII_VAR(struct ast_json *, unique_id, NULL, ast_json_free);
-	RAII_VAR(char *, routing_key, NULL, ast_free);
-	const char *routing_key_prefix = "stasis.channel";
+	RAII_VAR(struct ast_json *, bus_event, NULL, ast_json_unref);
+	RAII_VAR(struct ast_json *, json, NULL, ast_json_unref);
+	const char *event_name = NULL;
+	char **headers = NULL;
 
 	if (stasis_subscription_final_message(sub, message)) {
 		return;
@@ -275,20 +273,36 @@ static void stasis_channel_event_handler(void *data, struct stasis_subscription 
 		return;
 	}
 
-	if (!(channel = ast_json_object_get(json, "channel"))) {
+	if (!(event_name = ast_json_object_string_get(json, "type"))) {
+		ast_debug(5, "ignoring stasis event with no type\n");
 		return;
 	}
 
-
-	if (!(unique_id = ast_json_object_get(channel, "id"))) {
+	bus_event = ast_json_object_create();
+	if (!bus_event) {
+		ast_log(LOG_ERROR, "failed to create json object\n");
 		return;
 	}
 
-	if (!(routing_key = new_routing_key(routing_key_prefix, ast_json_string_get(unique_id)))) {
+	if (ast_json_object_set(bus_event, "name", ast_json_string_create(event_name))) {
+		ast_log(LOG_ERROR, "failed to set name on bus message\n");
 		return;
 	}
 
-	publish_to_amqp(routing_key, "stasis_channel", stasis_message_eid(message), json);
+	if (ast_json_object_set(bus_event, "data", json)) {
+		ast_log(LOG_ERROR, "failed to add stasis message to bus event payload\n");
+		return;
+	}
+
+	headers = create_stasis_event_headers(NULL, event_name, "stasis");
+	if (!headers) {
+		ast_log(LOG_ERROR, "failed to create AMQP headers\n");
+		return;
+	}
+
+	publish_to_amqp_with_headers(bus_event, headers);
+
+	destroy_stasis_event_headers(headers);
 }
 
 static int manager_event_to_json(struct ast_json *json, const char *event_name, char *fields)
@@ -338,38 +352,46 @@ static int manager_event_to_json(struct ast_json *json, const char *event_name, 
 
 char **create_stasis_event_headers(const char *app_name, const char *event_name, const char *category)
 {
-	char **headers = ast_calloc(STASIS_EVENT_HEADER_COUNT, sizeof(char *));
+	int header_count = app_name ? 3 : 2;
+	int i = 0;
+	char **headers = ast_calloc(header_count + 1, sizeof(char *));
 	if (!headers) {
 		return NULL;
 	}
 
-	if (ast_asprintf(&headers[0], "%s: %s", "application_name", app_name) < 0) {
+	if (ast_asprintf(&headers[i++], "%s: %s", "name", event_name) < 0) {
 		destroy_stasis_event_headers(headers);
 		return NULL;
 	}
-	if (ast_asprintf(&headers[1], "%s: %s", "name", event_name) < 0) {
+	if(ast_asprintf(&headers[i++], "%s: %s", "category", category) < 0) {
 		destroy_stasis_event_headers(headers);
 		return NULL;
 	}
-	if(ast_asprintf(&headers[2], "%s: %s", "category", category) < 0) {
-		destroy_stasis_event_headers(headers);
-		return NULL;
+	if (app_name) {
+		if (ast_asprintf(&headers[i++], "%s: %s", "application_name", app_name) < 0) {
+			destroy_stasis_event_headers(headers);
+			return NULL;
+		}
 	}
 
 	return headers;
 }
 
-int destroy_stasis_event_headers(char **headers)
+void destroy_stasis_event_headers(char **headers)
 {
-	for (int i = 0; i < STASIS_EVENT_HEADER_COUNT; ++i) {
+	int header_count = 0;
+
+	for (char **pos = headers; *pos; pos++) {
+		++header_count;
+	}
+
+	for (int i = 0; i < header_count; ++i) {
 		if (headers[i]) {
 			ast_free(headers[i]);
 			headers[i] = NULL;
 		}
 	}
 	ast_free(headers);
-
-	return 0;
 }
 
 static void stasis_app_event_handler(void *data, const char *app_name, struct ast_json *stasis_event)
