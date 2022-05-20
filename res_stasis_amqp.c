@@ -311,15 +311,14 @@ static int manager_event_to_json(struct ast_json *json, const char *event_name, 
 	char *line = NULL;
 	char *word = NULL;
 	char *key, *value;
-	int res = 0;
 
-	json_value = ast_json_string_create(event_name);
-	if (!json_value) {
+	if (!(json_value = ast_json_string_create(event_name))) {
+		ast_log(LOG_ERROR, "failed to create json string for AMI event name\n");
 		return -1;
 	}
 
-	res = ast_json_object_set(json, "Event", json_value);
-	if (res) {
+	if (ast_json_object_set(json, "Event", json_value)) {
+		ast_log(LOG_DEBUG, "failed to set json value Event: %s\n", event_name);
 		return -1;
 	}
 
@@ -335,13 +334,11 @@ static int manager_event_to_json(struct ast_json *json, const char *event_name, 
 			}
 		}
 
-		json_value = ast_json_string_create(value);
-		if (!json_value) {
+		if (!(json_value = ast_json_string_create(value))) {
 			continue;
 		}
 
-		res = ast_json_object_set(json, key, json_value);
-		if (res) {
+		if (ast_json_object_set(json, key, json_value)) {
 			ast_log(LOG_DEBUG, "failed to set json value %s: %s\n", key, value);
 			return -1;
 		}
@@ -455,37 +452,62 @@ static void stasis_app_event_handler(void *data, const char *app_name, struct as
 static void ami_event_handler(void *data, struct stasis_subscription *sub,
 									struct stasis_message *message)
 {
-	RAII_VAR(struct ast_json *, json, NULL, ast_json_unref);
-	RAII_VAR(char *, routing_key, NULL, ast_free);
+	RAII_VAR(struct ast_json *, bus_event, NULL, ast_json_unref);
 	RAII_VAR(struct ast_manager_event_blob *, manager_blob, NULL, ao2_cleanup);
-	const char *routing_key_prefix = "stasis.ami";
-	int res = 0;
-
-	manager_blob = stasis_message_to_ami(message);
-	json = ast_json_object_create();
-
-	if (!manager_blob) {
-		return;
-	}
-
-	if (!json) {
-		return;
-	}
-
 	RAII_VAR(char *, fields, NULL, ast_free);
-	fields = ast_strdup(manager_blob->extra_fields);
+	struct ast_json *event_data = NULL;
+	char **headers = NULL;
 
-	res = manager_event_to_json(json, manager_blob->manager_event, fields);
-	if (res) {
+	if (!stasis_message_can_be_ami(message)) {
+		return;
+	}
+
+	if (!(manager_blob = stasis_message_to_ami(message))) {
+		/* message has no AMI representation */
+		return;
+	}
+
+	if (!(bus_event = ast_json_object_create())) {
+		ast_log(LOG_ERROR, "failed to to create json object\n");
+		return;
+	}
+
+	if (ast_json_object_set(bus_event, "name", ast_json_string_create(manager_blob->manager_event))) {
+		ast_log(LOG_ERROR, "failed to set name on bus message\n");
+		return;
+	}
+
+	if (manager_blob->extra_fields) {
+		if (!(fields = ast_strdup(manager_blob->extra_fields))) {
+			ast_log(LOG_ERROR, "failed to copy AMI event fields\n");
+			return;
+		}
+	}
+
+	if (!(event_data = ast_json_object_create())) {
+		ast_log(LOG_ERROR, "failed to create json object\n");
+		return;
+	}
+
+	if (manager_event_to_json(event_data, manager_blob->manager_event, fields)) {
 		ast_log(LOG_ERROR, "failed to create AMI message json payload for %s\n", manager_blob->extra_fields);
 		return;
 	}
 
-	if (!(routing_key = new_routing_key(routing_key_prefix, manager_blob->manager_event))) {
+	if (ast_json_object_set(bus_event, "data", event_data)) {
+		ast_log(LOG_ERROR, "failed to set data field on bus message\n");
 		return;
 	}
 
-	publish_to_amqp(routing_key, manager_blob->manager_event, stasis_message_eid(message), json);
+	headers = create_stasis_event_headers(NULL, manager_blob->manager_event, "ami");
+	if (!headers) {
+		ast_log(LOG_ERROR, "failed to create AMQP headers\n");
+		return;
+	}
+
+	publish_to_amqp_with_headers(bus_event, headers);
+
+	destroy_stasis_event_headers(headers);
 }
 
 char *new_routing_key(const char *prefix, const char *suffix)
