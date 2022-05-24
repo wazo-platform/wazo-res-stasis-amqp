@@ -18,6 +18,12 @@
 						<para>Defaults to empty string</para>
 					</description>
 				</configOption>
+				<configOption name="exchange_type">
+					<synopsis>The type of the defined exchange</synopsis>
+					<description>
+						<para>Defaults to "headers"</para>
+					</description>
+				</configOption>
 			</configObject>
 		</configFile>
 	</configInfo>

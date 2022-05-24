@@ -56,6 +56,12 @@
 						<para>Defaults to empty string</para>
 					</description>
 				</configOption>
+				<configOption name="exchange_type">
+					<synopsis>The type of the defined exchange</synopsis>
+					<description>
+						<para>Defaults to "headers"</para>
+					</description>
+				</configOption>
 			</configObject>
 		</configFile>
 	</configInfo>
@@ -123,6 +129,8 @@ struct stasis_amqp_global_conf {
 		AST_STRING_FIELD(connection);
 		/*! \brief exchange name */
 		AST_STRING_FIELD(exchange);
+		/*! \brief exchange type */
+		AST_STRING_FIELD(exchange_type);
 	);
 };
 
@@ -183,7 +191,7 @@ static struct stasis_amqp_global_conf *conf_global_create(void)
 	if (!global) {
 		return NULL;
 	}
-	if (ast_string_field_init(global, 64) != 0) {
+	if (ast_string_field_init(global, 256) != 0) {
 		return NULL;
 	}
 	aco_set_defaults(&global_option, "global", global);
@@ -741,6 +749,9 @@ static int load_config(int reload)
 	aco_option_register(&cfg_info, "exchange", ACO_EXACT,
 		global_options, "", OPT_STRINGFIELD_T, 0,
 		STRFLDSET(struct stasis_amqp_global_conf, exchange));
+	aco_option_register(&cfg_info, "exchange_type", ACO_EXACT,
+		global_options, "headers", OPT_STRINGFIELD_T, 0,
+		STRFLDSET(struct stasis_amqp_global_conf, exchange_type));
 
 
 	switch (aco_process_config(&cfg_info, reload)) {
