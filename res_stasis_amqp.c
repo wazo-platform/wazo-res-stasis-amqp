@@ -103,8 +103,7 @@ int app_cmp(void *obj, void *arg, int flags);
 struct app *allocate_app(const char *name);
 void destroy_app(void *obj);
 static int setup_amqp(void);
-static int publish_to_amqp(const char *topic, const char *name, const struct ast_eid *eid, struct ast_json *body);
-static int publish_to_amqp_with_headers(struct ast_json *body, char **headers);
+static int publish_to_amqp(struct ast_json *body, char **headers, const char *routing_key);
 int register_to_new_stasis_app(const void *data);
 char *new_routing_key(const char *prefix, const char *suffix);
 struct ast_eid *eid_copy(const struct ast_eid *eid);
@@ -300,7 +299,7 @@ static void stasis_channel_event_handler(void *data, struct stasis_subscription 
 		return;
 	}
 
-	publish_to_amqp_with_headers(bus_event, headers);
+	publish_to_amqp(bus_event, headers, "");
 
 	destroy_stasis_event_headers(headers);
 }
@@ -396,6 +395,7 @@ static void stasis_app_event_handler(void *data, const char *app_name, struct as
 	RAII_VAR(struct ast_json *, bus_event, NULL, ast_json_unref);
 	RAII_VAR(char *, routing_key, NULL, ast_free);
 	const char *event_name = ast_json_object_string_get(stasis_event, "type");
+	const char *routing_key_prefix = "stasis.app";
 	char **headers = NULL;
 
 	ast_debug(4, "called stasis amqp handler for application: '%s'\n", app_name);
@@ -432,7 +432,12 @@ static void stasis_app_event_handler(void *data, const char *app_name, struct as
 		return;
 	}
 
-	publish_to_amqp_with_headers(bus_event, headers);
+	if (!(routing_key = new_routing_key(routing_key_prefix, app_name))) {
+		ast_log(LOG_ERROR, "failed to create routing key\n");
+		return;
+	}
+
+	publish_to_amqp(bus_event, headers, routing_key);
 
 	destroy_stasis_event_headers(headers);
 
@@ -505,7 +510,7 @@ static void ami_event_handler(void *data, struct stasis_subscription *sub,
 		return;
 	}
 
-	publish_to_amqp_with_headers(bus_event, headers);
+	publish_to_amqp(bus_event, headers, "");
 
 	destroy_stasis_event_headers(headers);
 }
@@ -555,7 +560,7 @@ struct ast_eid *eid_copy(const struct ast_eid *eid)
 	return new;
 }
 
-static int publish_to_amqp_with_headers(struct ast_json *body, char **headers)
+static int publish_to_amqp(struct ast_json *body, char **headers, const char *routing_key)
 {
 	RAII_VAR(struct stasis_amqp_conf *, conf, NULL, ao2_cleanup);
 	RAII_VAR(char *, msg, NULL, ast_json_free);
@@ -565,7 +570,6 @@ static int publish_to_amqp_with_headers(struct ast_json *body, char **headers)
 	char *colon = NULL;
 	int nb_headers = 0;
 	int i = 0;
-	int result = 0;
 
 	amqp_basic_properties_t props = {
 		._flags = AMQP_BASIC_DELIVERY_MODE_FLAG | AMQP_BASIC_CONTENT_TYPE_FLAG,
@@ -585,6 +589,11 @@ static int publish_to_amqp_with_headers(struct ast_json *body, char **headers)
 		return -1;
 	}
 
+	if (!conf->global->exchange_type) {
+		ast_log(LOG_ERROR, "cannot find exchange type\n");
+		return -1;
+	}
+
 	struct ast_amqp_connection *conn = ast_amqp_get_connection(connection_name);
 	if (!conn) {
 		ast_log(LOG_ERROR, "Failed to get an AMQP connection for %s\n", connection_name);
@@ -596,51 +605,66 @@ static int publish_to_amqp_with_headers(struct ast_json *body, char **headers)
 		return -1;
 	}
 
-	if (headers) {
-		for (pos = headers; *pos; pos++) {
-			++nb_headers;
-		}
-
-		if (nb_headers > 0) {
-			header_table = &props.headers;
-			header_table->num_entries = nb_headers;
-			header_table->entries = ast_calloc(nb_headers, sizeof(amqp_table_entry_t));
+	if (strcmp(conf->global->exchange_type, "headers") == 0) {
+		if (headers) {
 			for (pos = headers; *pos; pos++) {
-				colon = strstr(*pos, ":");
-				if (!colon) {
-					ast_log(LOG_ERROR, "ignoring invalid header %s\n", *pos);
-					continue;
-				}
-				*colon++ = '\0';
-				while (*colon == ' ') colon++;
-				header_table->entries[i].key = amqp_cstring_bytes(*pos);
-				header_table->entries[i].value.kind = AMQP_FIELD_KIND_UTF8;
-				header_table->entries[i].value.value.bytes = amqp_cstring_bytes(colon);
-				i++;
+				++nb_headers;
 			}
-			props._flags |= AMQP_BASIC_HEADERS_FLAG;
+
+			if (nb_headers > 0) {
+				header_table = &props.headers;
+				header_table->num_entries = nb_headers;
+				header_table->entries = ast_calloc(nb_headers, sizeof(amqp_table_entry_t));
+				for (pos = headers; *pos; pos++) {
+					colon = strstr(*pos, ":");
+					if (!colon) {
+						ast_log(LOG_ERROR, "ignoring invalid header %s\n", *pos);
+						continue;
+					}
+					*colon++ = '\0';
+					while (*colon == ' ') colon++;
+					header_table->entries[i].key = amqp_cstring_bytes(*pos);
+					header_table->entries[i].value.kind = AMQP_FIELD_KIND_UTF8;
+					header_table->entries[i].value.value.bytes = amqp_cstring_bytes(colon);
+					i++;
+				}
+				props._flags |= AMQP_BASIC_HEADERS_FLAG;
+			}
 		}
+
+		if (ast_amqp_basic_publish(
+			conn,
+			amqp_cstring_bytes(conf->global->exchange),
+			amqp_cstring_bytes(""), /* routing key */
+			0, /* mandatory; don't return unsendable messages */
+			0, /* immediate; allow messages to be queued */
+			&props,
+			amqp_cstring_bytes(msg))) {
+			ast_log(LOG_ERROR, "Error publishing stasis to AMQP\n");
+			return -1;
+		}
+
+		if (props.headers.num_entries > 0) {
+			ast_free(props.headers.entries);
+		}
+	} else if (strcmp(conf->global->exchange_type, "topic") == 0) {
+		if(ast_amqp_basic_publish(
+			conn,
+			amqp_cstring_bytes(conf->global->exchange),
+			amqp_cstring_bytes(routing_key),
+			0, /* mandatory; don't return unsendable messages */
+			0, /* immediate; allow messages to be queued */
+			&props,
+			amqp_cstring_bytes(msg))) {
+			ast_log(LOG_ERROR, "Error publishing stasis to AMQP\n");
+			return -1;
+		}
+	} else {
+		ast_log(LOG_ERROR, "Invalid exchange type got %s valid choices (headers|topic)\n", routing_key);
+		return -1;
 	}
 
-	ast_debug(5, "publishing amqp event with headers: %s\n", msg);
-
-	if (ast_amqp_basic_publish(
-		conn,
-		amqp_cstring_bytes(conf->global->exchange),
-		amqp_cstring_bytes(""), /* routing key */
-		0, /* mandatory; don't return unsendable messages */
-		0, /* immediate; allow messages to be queued */
-		&props,
-		amqp_cstring_bytes(msg))) {
-		ast_log(LOG_ERROR, "Error publishing stasis to AMQP\n");
-		result = -1;
-	}
-
-	if (props.headers.num_entries > 0) {
-		ast_free(props.headers.entries);
-	}
-
-	return result;
+	return 0;
 }
 
 // static int publish_to_amqp(const char *topic, const char *name, const struct ast_eid *eid, struct ast_json *body)
