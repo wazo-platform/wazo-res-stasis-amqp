@@ -57,8 +57,7 @@ def ari(request):
     AssetLauncher.kill_containers()
 
 
-# TODO rename amqp to headers
-@pytest.mark.parametrize('ari', ['amqp'], indirect=True)
+@pytest.mark.parametrize('ari', ['headers'], indirect=True)
 def test_stasis_amqp_events_headers(ari):
     real_app = 'A'
     parasite_app = 'B'
@@ -189,7 +188,7 @@ def test_stasis_amqp_events_bad_routing(ari):
     until.assert_(event_received, timeout=5)
 
 
-@pytest.mark.parametrize('ari', ['amqp'], indirect=True)
+@pytest.mark.parametrize('ari', ['headers'], indirect=True)
 def test_app_subscribe(ari):
     assert_that(
         calling(ari.amqp.stasisSubscribe).with_args(**subscribe_args),
@@ -199,7 +198,7 @@ def test_app_subscribe(ari):
     assert_that(ari.applications.list(), has_item(has_entry('name', subscribe_args[app_name_key])))
 
 
-@pytest.mark.parametrize('ari', ['amqp'], indirect=True)
+@pytest.mark.parametrize('ari', ['headers'], indirect=True)
 def test_app_unsubscribe(ari):
     app_name = 'my-test-app'
     ari.amqp.stasisSubscribe(applicationName=app_name)
