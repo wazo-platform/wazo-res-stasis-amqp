@@ -461,6 +461,8 @@ static void ami_event_handler(void *data, struct stasis_subscription *sub,
 	RAII_VAR(struct ast_manager_event_blob *, manager_blob, NULL, ao2_cleanup);
 	RAII_VAR(char *, fields, NULL, ast_free);
 	struct ast_json *event_data = NULL;
+	const char *routing_key_prefix = "ami";
+	RAII_VAR(char *, routing_key, NULL, ast_free);
 	char **headers = NULL;
 
 	if (!stasis_message_can_be_ami(message)) {
@@ -504,13 +506,18 @@ static void ami_event_handler(void *data, struct stasis_subscription *sub,
 		return;
 	}
 
+	if (!(routing_key = new_routing_key(routing_key_prefix, manager_blob->manager_event))) {
+		ast_log(LOG_ERROR, "failed to create routing key\n");
+		return;
+	}
+
 	headers = create_stasis_event_headers(NULL, manager_blob->manager_event, "ami");
 	if (!headers) {
 		ast_log(LOG_ERROR, "failed to create AMQP headers\n");
 		return;
 	}
 
-	publish_to_amqp(bus_event, headers, "");
+	publish_to_amqp(bus_event, headers, routing_key);
 
 	destroy_stasis_event_headers(headers);
 }
