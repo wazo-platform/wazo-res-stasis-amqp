@@ -734,11 +734,9 @@ static int unload_module(void)
 	conf = ao2_global_obj_ref(confs);
 	if (conf->global->publish_channel_events) {
 		stasis_unsubscribe_and_join(sub);
-		sub = NULL;
 	}
 	if (conf->global->publish_ami_events) {
 		stasis_unsubscribe_and_join(manager);
-		manager = NULL;
 	}
 
 	return 0;
@@ -780,7 +778,9 @@ static int load_module(void)
 
 	if (!(stasis_app_sched_context = ast_sched_context_create())) {
 		ast_log(LOG_ERROR, "failed to create scheduler context\n");
-		/* unsubscribe from manager and sub */
+		if (conf->global->publish_ami_events) {
+			stasis_unsubscribe_and_join(manager);
+		}
 		return AST_MODULE_LOAD_DECLINE;
 	}
 
@@ -788,14 +788,21 @@ static int load_module(void)
 		ast_debug(3, "subscribing to channel events\n");
 		/* Subscription to receive all of the messages from channel topic */
 		if (!(sub = stasis_subscribe(ast_channel_topic_all(), stasis_channel_event_handler, NULL))) {
+			if (conf->global->publish_ami_events) {
+				stasis_unsubscribe_and_join(manager);
+			}
 			return AST_MODULE_LOAD_DECLINE;
 		}
 	}
 
 	if (ast_sched_start_thread(stasis_app_sched_context)) {
 		ast_log(LOG_ERROR, "failed to start scheduler thread\n");
-		/* unsubscribe from manager and sub */
-		/* destroy context */
+		if (conf->global->publish_ami_events) {
+			stasis_unsubscribe_and_join(manager);
+		}
+		if (conf->global->publish_channel_events) {
+			stasis_unsubscribe_and_join(sub);
+		}
 		return AST_MODULE_LOAD_DECLINE;
 	}
 
