@@ -170,6 +170,77 @@ def test_stasis_amqp_ami_events_topic(ari):
 
     until.assert_(event_received, timeout=5)
 
+@pytest.mark.parametrize('ari', ['no-publish'], indirect=True)
+def test_stasis_amqp_ami_events_disabled(ari):
+    ari.amqp.stasisSubscribe(applicationName='myapp')
+
+    bus_client = BusClient.from_connection_fields(
+        port=AssetLauncher.service_port(5672, 'rabbitmq'),
+        exchange_type='headers',
+    )
+
+    ami_accumulator = bus_client.accumulator(headers={
+        'category': 'ami',
+        'name': 'DeviceStateChange',
+        'x-match': 'all',
+    })
+    app_accumulator = bus_client.accumulator(headers={
+        'category': 'stasis',
+        'application_name': 'myapp',
+        'x-match': 'all',
+    })
+
+    ari.channels.originate(endpoint='local/3000@default', app='myapp')
+
+    def event_received():
+        events = app_accumulator.accumulate(with_headers=True)
+        assert_that(events, only_contains(
+            has_entries(
+                headers=has_entries(application_name='myapp', category='stasis'),
+            ),
+        ))
+
+    until.assert_(event_received, timeout=5)
+
+    events = ami_accumulator.accumulate(with_headers=True)
+    assert_that(events, empty())
+
+@pytest.mark.parametrize('ari', ['no-publish'], indirect=True)
+def test_stasis_amqp_channel_events_disabled(ari):
+    ari.amqp.stasisSubscribe(applicationName='myapp')
+
+    bus_client = BusClient.from_connection_fields(
+        port=AssetLauncher.service_port(5672, 'rabbitmq'),
+        exchange_type='headers',
+    )
+
+    channel_accumulator = bus_client.accumulator(headers={
+        'category': 'ami',
+        'name': 'Dial',
+        'x-match': 'all',
+    })
+    app_accumulator = bus_client.accumulator(headers={
+        'category': 'stasis',
+        'application_name': 'myapp',
+        'x-match': 'all',
+    })
+
+    ari.channels.originate(endpoint='local/3000@default', app='myapp')
+
+    def event_received():
+        events = app_accumulator.accumulate(with_headers=True)
+        assert_that(events, only_contains(
+            has_entries(
+                headers=has_entries(application_name='myapp', category='stasis'),
+            ),
+        ))
+
+    until.assert_(event_received, timeout=5)
+
+    events = channel_accumulator.accumulate(with_headers=True)
+    assert_that(events, empty())
+
+
 @pytest.mark.parametrize('ari', ['headers'], indirect=True)
 def test_stasis_amqp_channel_events_headers(ari):
     bus_client = BusClient.from_connection_fields(

@@ -62,6 +62,18 @@
 						<para>Defaults to "headers"</para>
 					</description>
 				</configOption>
+				<configOption name="publish_ami_events">
+					<synopsis>Wether or not ami events should be published</synopsis>
+					<description>
+						<para>Defaults to "yes"</para>
+					</description>
+				</configOption>
+				<configOption name="publish_channel_events">
+					<synopsis>Wether or not channel events should be published</synopsis>
+					<description>
+						<para>Defaults to "yes"</para>
+					</description>
+				</configOption>
 			</configObject>
 		</configFile>
 	</configInfo>
@@ -131,6 +143,8 @@ struct stasis_amqp_global_conf {
 		/*! \brief exchange type */
 		AST_STRING_FIELD(exchange_type);
 	);
+	int publish_ami_events;
+	int publish_channel_events;
 };
 
 /*! \brief Locking container for safe configuration access. */
@@ -776,6 +790,10 @@ static int load_config(int reload)
 	aco_option_register(&cfg_info, "exchange_type", ACO_EXACT,
 		global_options, "headers", OPT_STRINGFIELD_T, 0,
 		STRFLDSET(struct stasis_amqp_global_conf, exchange_type));
+	aco_option_register(&cfg_info, "publish_ami_events", ACO_EXACT,
+		global_options, "yes", OPT_BOOL_T, 1, FLDSET(struct stasis_amqp_global_conf, publish_ami_events));
+	aco_option_register(&cfg_info, "publish_channel_events", ACO_EXACT,
+		global_options, "yes", OPT_BOOL_T, 1, FLDSET(struct stasis_amqp_global_conf, publish_channel_events));
 
 
 	switch (aco_process_config(&cfg_info, reload)) {
@@ -795,15 +813,23 @@ static int load_config(int reload)
 
 static int unload_module(void)
 {
+	RAII_VAR(struct stasis_amqp_conf *, conf, NULL, ao2_cleanup);
+
 	if (stasis_app_sched_context) {
 		ast_sched_context_destroy(stasis_app_sched_context);
 		stasis_app_sched_context = NULL;
 	}
 
-	stasis_unsubscribe_and_join(sub);
-	stasis_unsubscribe_and_join(manager);
-	sub = NULL;
-	manager = NULL;
+	conf = ao2_global_obj_ref(confs);
+	if (conf->global->publish_channel_events) {
+		stasis_unsubscribe_and_join(sub);
+		sub = NULL;
+	}
+	if (conf->global->publish_ami_events) {
+		stasis_unsubscribe_and_join(manager);
+		manager = NULL;
+	}
+
 	return 0;
 }
 
@@ -824,15 +850,21 @@ int ast_unsubscribe_from_stasis(const char *app_name)
 
 static int load_module(void)
 {
+	RAII_VAR(struct stasis_amqp_conf *, conf, NULL, ao2_cleanup);
+
 	if (load_config(0) != 0) {
 		ast_log(LOG_WARNING, "Configuration failed to load\n");
 		return AST_MODULE_LOAD_DECLINE;
 	}
 
-	/* Subscription to receive all of the messages from manager topic */
-	manager = stasis_subscribe(ast_manager_get_topic(), ami_event_handler, NULL);
-	if (!manager) {
-		return AST_MODULE_LOAD_DECLINE;
+	conf = ao2_global_obj_ref(confs);
+
+	if (conf->global->publish_ami_events) {
+		ast_debug(3, "subscribing to AMI events\n");
+		/* Subscription to receive all of the messages from manager topic */
+		if (!(manager = stasis_subscribe(ast_manager_get_topic(), ami_event_handler, NULL))) {
+			return AST_MODULE_LOAD_DECLINE;
+		}
 	}
 
 	if (!(stasis_app_sched_context = ast_sched_context_create())) {
@@ -841,11 +873,12 @@ static int load_module(void)
 		return AST_MODULE_LOAD_DECLINE;
 	}
 
-	/* Subscription to receive all of the messages from channel topic */
-	sub = stasis_subscribe(ast_channel_topic_all(), stasis_channel_event_handler, NULL);
-	if (!sub) {
-		/* unsubscribe from manager */
-		return AST_MODULE_LOAD_DECLINE;
+	if (conf->global->publish_channel_events) {
+		ast_debug(3, "subscribing to channel events\n");
+		/* Subscription to receive all of the messages from channel topic */
+		if (!(sub = stasis_subscribe(ast_channel_topic_all(), stasis_channel_event_handler, NULL))) {
+			return AST_MODULE_LOAD_DECLINE;
+		}
 	}
 
 	if (ast_sched_start_thread(stasis_app_sched_context)) {
