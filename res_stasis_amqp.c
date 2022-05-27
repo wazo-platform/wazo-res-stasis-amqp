@@ -263,6 +263,8 @@ static void stasis_channel_event_handler(void *data, struct stasis_subscription 
 	RAII_VAR(struct ast_json *, json, NULL, ast_json_unref);
 	const char *event_name = NULL;
 	char **headers = NULL;
+	const char *routing_key_prefix = "stasis.channel";
+	RAII_VAR(char *, routing_key, NULL, ast_free);
 
 	if (stasis_subscription_final_message(sub, message)) {
 		return;
@@ -299,7 +301,12 @@ static void stasis_channel_event_handler(void *data, struct stasis_subscription 
 		return;
 	}
 
-	publish_to_amqp(bus_event, headers, "");
+	if (!(routing_key = new_routing_key(routing_key_prefix, event_name))) {
+		ast_log(LOG_ERROR, "failed to create routing key\n");
+		return;
+	}
+
+	publish_to_amqp(bus_event, headers, routing_key);
 
 	destroy_stasis_event_headers(headers);
 }

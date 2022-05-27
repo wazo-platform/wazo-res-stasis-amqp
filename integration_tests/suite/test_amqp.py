@@ -170,6 +170,64 @@ def test_stasis_amqp_ami_events_topic(ari):
 
     until.assert_(event_received, timeout=5)
 
+@pytest.mark.parametrize('ari', ['headers'], indirect=True)
+def test_stasis_amqp_channel_events_headers(ari):
+    bus_client = BusClient.from_connection_fields(
+        port=AssetLauncher.service_port(5672, 'rabbitmq'),
+        exchange_type='headers',
+    )
+
+    accumulator = bus_client.accumulator(headers={
+            'category': 'stasis',
+            'name': 'Dial',
+            'x-match': 'all',
+    })
+
+    ari.channels.originate(endpoint='local/3000@default', extension='1000', context='default')
+
+    def event_received():
+        events = accumulator.accumulate(with_headers=True)
+        print(events)
+        assert_that(events, has_item(has_entries(
+            headers=has_entries(
+                category='stasis',
+                name='Dial',
+            ),
+            message=has_entries(
+                name='Dial',
+                data=has_entries(
+                    type='Dial',
+                    dialstring='3000@default',
+                ),
+            ),
+        )))
+
+    until.assert_(event_received, timeout=5)
+
+@pytest.mark.parametrize('ari', ['topic'], indirect=True)
+def test_stasis_amqp_channel_events_topic(ari):
+    bus_client = BusClient.from_connection_fields(
+        port=AssetLauncher.service_port(5672, 'rabbitmq'),
+    )
+
+    accumulator = bus_client.accumulator('stasis.channel.dial')
+
+    ari.channels.originate(endpoint='local/3000@default', extension='1000', context='default')
+
+    def event_received():
+        events = accumulator.accumulate()
+        assert_that(events, has_item(
+            has_entries(
+                name='Dial',
+                data=has_entries(
+                    type='Dial',
+                    dialstring='3000@default',
+                ),
+            ),
+        ))
+
+    until.assert_(event_received, timeout=5)
+
 @pytest.mark.parametrize('ari', ['topic'], indirect=True)
 def test_stasis_amqp_events_topic(ari):
     real_app = 'A'
