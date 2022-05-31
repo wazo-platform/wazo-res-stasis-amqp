@@ -63,13 +63,13 @@
 					</description>
 				</configOption>
 				<configOption name="publish_ami_events">
-					<synopsis>Wether or not ami events should be published</synopsis>
+					<synopsis>Whether or not ami events should be published</synopsis>
 					<description>
 						<para>Defaults to "yes"</para>
 					</description>
 				</configOption>
 				<configOption name="publish_channel_events">
-					<synopsis>Wether or not channel events should be published</synopsis>
+					<synopsis>Whether or not channel events should be published</synopsis>
 					<description>
 						<para>Defaults to "yes"</para>
 					</description>

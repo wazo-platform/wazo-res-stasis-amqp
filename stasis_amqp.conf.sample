@@ -2,5 +2,5 @@
 ;connection = bunny      ; Connection name in amqp.conf
 ;exchange =              ; Exchange to publish to; defaults to empty string
 ;exchange_type = headers ; Type of exchange to publish to
-;publish_ami_events = yes ; wether or not ami events should be published
-;publish_channel_events = yes ;wether or not channel events should be published
+;publish_ami_events = yes ; whether or not ami events should be published
+;publish_channel_events = yes ;whether or not channel events should be published
