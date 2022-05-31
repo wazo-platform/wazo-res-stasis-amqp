@@ -389,17 +389,9 @@ char **create_stasis_event_headers(const char *app_name, const char *event_name,
 
 void destroy_stasis_event_headers(char **headers)
 {
-	int header_count = 0;
-
 	for (char **pos = headers; *pos; pos++) {
-		++header_count;
-	}
-
-	for (int i = 0; i < header_count; ++i) {
-		if (headers[i]) {
-			ast_free(headers[i]);
-			headers[i] = NULL;
-		}
+		ast_free(*pos);
+		*pos = NULL;
 	}
 	ast_free(headers);
 }
