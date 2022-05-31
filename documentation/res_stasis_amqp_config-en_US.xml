@@ -18,12 +18,6 @@
 						<para>Defaults to empty string</para>
 					</description>
 				</configOption>
-				<configOption name="exchange_type">
-					<synopsis>The type of the defined exchange</synopsis>
-					<description>
-						<para>Defaults to "headers"</para>
-					</description>
-				</configOption>
 				<configOption name="publish_ami_events">
 					<synopsis>Whether or not ami events should be published</synopsis>
 					<description>

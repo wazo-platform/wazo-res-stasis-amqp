@@ -56,12 +56,6 @@
 						<para>Defaults to empty string</para>
 					</description>
 				</configOption>
-				<configOption name="exchange_type">
-					<synopsis>The type of the defined exchange</synopsis>
-					<description>
-						<para>Defaults to "headers"</para>
-					</description>
-				</configOption>
 				<configOption name="publish_ami_events">
 					<synopsis>Whether or not ami events should be published</synopsis>
 					<description>
@@ -141,7 +135,6 @@ struct stasis_amqp_global_conf {
 		/*! \brief exchange name */
 		AST_STRING_FIELD(exchange);
 		/*! \brief exchange type */
-		AST_STRING_FIELD(exchange_type);
 	);
 	int publish_ami_events;
 	int publish_channel_events;
@@ -618,11 +611,6 @@ static int publish_to_amqp(struct ast_json *body, char **headers, const char *ro
 		return -1;
 	}
 
-	if (!conf->global->exchange_type) {
-		ast_log(LOG_ERROR, "cannot find exchange type\n");
-		return -1;
-	}
-
 	struct ast_amqp_connection *conn = ast_amqp_get_connection(connection_name);
 	if (!conn) {
 		ast_log(LOG_ERROR, "Failed to get an AMQP connection for %s\n", connection_name);
@@ -634,7 +622,7 @@ static int publish_to_amqp(struct ast_json *body, char **headers, const char *ro
 		return -1;
 	}
 
-	if (strcmp(conf->global->exchange_type, "headers") == 0 && headers) {
+	if (headers) {
 		for (pos = headers; *pos; pos++) {
 			++nb_headers;
 		}
@@ -698,9 +686,6 @@ static int load_config(int reload)
 	aco_option_register(&cfg_info, "exchange", ACO_EXACT,
 		global_options, "", OPT_STRINGFIELD_T, 0,
 		STRFLDSET(struct stasis_amqp_global_conf, exchange));
-	aco_option_register(&cfg_info, "exchange_type", ACO_EXACT,
-		global_options, "headers", OPT_STRINGFIELD_T, 0,
-		STRFLDSET(struct stasis_amqp_global_conf, exchange_type));
 	aco_option_register(&cfg_info, "publish_ami_events", ACO_EXACT,
 		global_options, "yes", OPT_BOOL_T, 1, FLDSET(struct stasis_amqp_global_conf, publish_ami_events));
 	aco_option_register(&cfg_info, "publish_channel_events", ACO_EXACT,
