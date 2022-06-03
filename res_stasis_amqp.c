@@ -109,13 +109,11 @@ int app_cmp(void *obj, void *arg, int flags);
 struct app *allocate_app(const char *name);
 void destroy_app(void *obj);
 static int setup_amqp(void);
-static int publish_to_amqp(struct ast_json *body, char **headers, const char *routing_key);
+static int publish_to_amqp(struct ast_json *body, struct ast_json *headers, const char *routing_key);
 int register_to_new_stasis_app(const void *data);
 char *new_routing_key(const char *prefix, const char *suffix);
 struct ast_eid *eid_copy(const struct ast_eid *eid);
-char **create_stasis_event_headers(const char *app_name, const char *event_name, const char *category);
-void destroy_stasis_event_headers(char **headers);
-
+struct ast_json *create_stasis_event_headers(const char *app_name, const char *event_name, const char *category);
 
 /*! \brief stasis_amqp configuration */
 struct stasis_amqp_conf {
@@ -268,8 +266,8 @@ static void stasis_channel_event_handler(void *data, struct stasis_subscription 
 {
 	RAII_VAR(struct ast_json *, bus_event, NULL, ast_json_unref);
 	RAII_VAR(struct ast_json *, json, NULL, ast_json_unref);
+	RAII_VAR(struct ast_json *, headers, NULL, ast_json_unref);
 	const char *event_name = NULL;
-	char **headers = NULL;
 	const char *routing_key_prefix = "stasis.channel";
 	RAII_VAR(char *, routing_key, NULL, ast_free);
 
@@ -314,8 +312,6 @@ static void stasis_channel_event_handler(void *data, struct stasis_subscription 
 	}
 
 	publish_to_amqp(bus_event, headers, routing_key);
-
-	destroy_stasis_event_headers(headers);
 }
 
 static int manager_event_to_json(struct ast_json *json, const char *event_name, char *fields)
@@ -360,49 +356,42 @@ static int manager_event_to_json(struct ast_json *json, const char *event_name, 
 	return 0;
 }
 
-char **create_stasis_event_headers(const char *app_name, const char *event_name, const char *category)
+struct ast_json *create_stasis_event_headers(const char *app_name, const char *event_name, const char *category)
 {
-	int header_count = app_name ? 3 : 2;
-	int i = 0;
-	char **headers = ast_calloc(header_count + 1, sizeof(char *));
+	RAII_VAR(struct ast_json *, headers, ast_json_object_create(), ast_json_unref);
+
 	if (!headers) {
+		ast_log(LOG_ERROR, "failed to create json object\n");
 		return NULL;
 	}
 
-	if (ast_asprintf(&headers[i++], "%s: %s", "name", event_name) < 0) {
-		destroy_stasis_event_headers(headers);
+	if (ast_json_object_set(headers, "name", ast_json_string_create(event_name))) {
+		ast_log(LOG_ERROR, "failed to set the name header\n");
 		return NULL;
 	}
-	if(ast_asprintf(&headers[i++], "%s: %s", "category", category) < 0) {
-		destroy_stasis_event_headers(headers);
+
+	if (ast_json_object_set(headers, "category", ast_json_string_create(category))) {
+		ast_log(LOG_ERROR, "failed to set the category header\n");
 		return NULL;
 	}
+
 	if (app_name) {
-		if (ast_asprintf(&headers[i++], "%s: %s", "application_name", app_name) < 0) {
-			destroy_stasis_event_headers(headers);
+		if (ast_json_object_set(headers, "application_name", ast_json_string_create(app_name))) {
+			ast_log(LOG_ERROR, "failed to set the application_name header\n");
 			return NULL;
 		}
 	}
 
-	return headers;
-}
-
-void destroy_stasis_event_headers(char **headers)
-{
-	for (char **pos = headers; *pos; pos++) {
-		ast_free(*pos);
-		*pos = NULL;
-	}
-	ast_free(headers);
+	return ast_json_ref(headers);
 }
 
 static void stasis_app_event_handler(void *data, const char *app_name, struct ast_json *stasis_event)
 {
 	RAII_VAR(struct ast_json *, bus_event, NULL, ast_json_unref);
+	RAII_VAR(struct ast_json *, headers, NULL, ast_json_unref);
 	RAII_VAR(char *, routing_key, NULL, ast_free);
 	const char *event_name = ast_json_object_string_get(stasis_event, "type");
 	const char *routing_key_prefix = "stasis.app";
-	char **headers = NULL;
 
 	ast_debug(4, "called stasis amqp handler for application: '%s'\n", app_name);
 
@@ -444,10 +433,6 @@ static void stasis_app_event_handler(void *data, const char *app_name, struct as
 	}
 
 	publish_to_amqp(bus_event, headers, routing_key);
-
-	destroy_stasis_event_headers(headers);
-
-	return;
 }
 
 
@@ -464,12 +449,12 @@ static void ami_event_handler(void *data, struct stasis_subscription *sub,
 									struct stasis_message *message)
 {
 	RAII_VAR(struct ast_json *, bus_event, NULL, ast_json_unref);
+	RAII_VAR(struct ast_json *, headers, NULL, ast_json_unref);
 	RAII_VAR(struct ast_manager_event_blob *, manager_blob, NULL, ao2_cleanup);
 	RAII_VAR(char *, fields, NULL, ast_free);
 	struct ast_json *event_data = NULL;
 	const char *routing_key_prefix = "ami";
 	RAII_VAR(char *, routing_key, NULL, ast_free);
-	char **headers = NULL;
 
 	if (!stasis_message_can_be_ami(message)) {
 		return;
@@ -524,8 +509,6 @@ static void ami_event_handler(void *data, struct stasis_subscription *sub,
 	}
 
 	publish_to_amqp(bus_event, headers, routing_key);
-
-	destroy_stasis_event_headers(headers);
 }
 
 char *new_routing_key(const char *prefix, const char *suffix)
@@ -573,14 +556,13 @@ struct ast_eid *eid_copy(const struct ast_eid *eid)
 	return new;
 }
 
-static int publish_to_amqp(struct ast_json *body, char **headers, const char *routing_key)
+static int publish_to_amqp(struct ast_json *body, struct ast_json *headers, const char *routing_key)
 {
 	RAII_VAR(struct stasis_amqp_conf *, conf, NULL, ao2_cleanup);
 	RAII_VAR(char *, msg, NULL, ast_json_free);
+	struct ast_json_iter *iter = NULL;
 	amqp_table_t *header_table = NULL;
 	const char *connection_name = NULL;
-	char **pos = NULL;
-	char *colon = NULL;
 	int nb_headers = 0;
 	int i = 0;
 	int result = 0;
@@ -615,25 +597,16 @@ static int publish_to_amqp(struct ast_json *body, char **headers, const char *ro
 	}
 
 	if (headers) {
-		for (pos = headers; *pos; pos++) {
-			++nb_headers;
-		}
+		nb_headers = ast_json_object_size(headers);
 
 		if (nb_headers > 0) {
 			header_table = &props.headers;
 			header_table->num_entries = nb_headers;
 			header_table->entries = ast_calloc(nb_headers, sizeof(amqp_table_entry_t));
-			for (pos = headers; *pos; pos++) {
-				colon = strstr(*pos, ":");
-				if (!colon) {
-					ast_log(LOG_ERROR, "ignoring invalid header %s\n", *pos);
-					continue;
-				}
-				*colon++ = '\0';
-				while (*colon == ' ') colon++;
-				header_table->entries[i].key = amqp_cstring_bytes(*pos);
+			for (iter = ast_json_object_iter(headers); iter; iter = ast_json_object_iter_next(headers, iter)) {
+				header_table->entries[i].key = amqp_cstring_bytes(ast_json_object_iter_key(iter));
 				header_table->entries[i].value.kind = AMQP_FIELD_KIND_UTF8;
-				header_table->entries[i].value.value.bytes = amqp_cstring_bytes(colon);
+				header_table->entries[i].value.value.bytes = amqp_cstring_bytes(ast_json_string_get(ast_json_object_iter_value(iter)));
 				i++;
 			}
 			props._flags |= AMQP_BASIC_HEADERS_FLAG;
