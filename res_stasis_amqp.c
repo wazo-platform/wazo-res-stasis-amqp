@@ -1,7 +1,7 @@
 /*
  * Asterisk -- An open source telephony toolkit.
  *
- * Copyright 2013-2019 The Wazo Authors  (see the AUTHORS file)
+ * Copyright 2013-2022 The Wazo Authors  (see the AUTHORS file)
  *
  * David M. Lee, II <dlee@digium.com>
  *
@@ -50,16 +50,22 @@
 						<para>Specifies the name of the connection from amqp.conf to use</para>
 					</description>
 				</configOption>
-				<configOption name="queue">
-					<synopsis>Name of the queue to post to</synopsis>
-					<description>
-						<para>Defaults to asterisk_stasis</para>
-					</description>
-				</configOption>
 				<configOption name="exchange">
 					<synopsis>Name of the exchange to post to</synopsis>
 					<description>
 						<para>Defaults to empty string</para>
+					</description>
+				</configOption>
+				<configOption name="publish_ami_events">
+					<synopsis>Whether or not ami events should be published</synopsis>
+					<description>
+						<para>Defaults to "yes"</para>
+					</description>
+				</configOption>
+				<configOption name="publish_channel_events">
+					<synopsis>Whether or not channel events should be published</synopsis>
+					<description>
+						<para>Defaults to "yes"</para>
 					</description>
 				</configOption>
 			</configObject>
@@ -103,12 +109,10 @@ int app_cmp(void *obj, void *arg, int flags);
 struct app *allocate_app(const char *name);
 void destroy_app(void *obj);
 static int setup_amqp(void);
-static int stasis_amqp_channel_log(struct stasis_message *message);
-static int publish_to_amqp(const char *topic, const char *name, const struct ast_eid *eid, struct ast_json *body);
+static int publish_to_amqp(struct ast_json *body, struct ast_json *headers, const char *routing_key);
 int register_to_new_stasis_app(const void *data);
 char *new_routing_key(const char *prefix, const char *suffix);
 struct ast_eid *eid_copy(const struct ast_eid *eid);
-
 
 /*! \brief stasis_amqp configuration */
 struct stasis_amqp_conf {
@@ -125,11 +129,12 @@ struct stasis_amqp_global_conf {
 	AST_DECLARE_STRING_FIELDS(
 		/*! \brief connection name */
 		AST_STRING_FIELD(connection);
-		/*! \brief queue name */
-		AST_STRING_FIELD(queue);
 		/*! \brief exchange name */
 		AST_STRING_FIELD(exchange);
+		/*! \brief exchange type */
 	);
+	int publish_ami_events;
+	int publish_channel_events;
 };
 
 /*! \brief Locking container for safe configuration access. */
@@ -189,7 +194,7 @@ static struct stasis_amqp_global_conf *conf_global_create(void)
 	if (!global) {
 		return NULL;
 	}
-	if (ast_string_field_init(global, 64) != 0) {
+	if (ast_string_field_init(global, 256) != 0) {
 		return NULL;
 	}
 	aco_set_defaults(&global_option, "global", global);
@@ -255,15 +260,49 @@ static int setup_amqp(void)
  *              topics.
  * \param message The message itself.
  */
-static void send_channel_event_to_amqp(void *data, struct stasis_subscription *sub,
+static void stasis_channel_event_handler(void *data, struct stasis_subscription *sub,
 	struct stasis_message *message)
 {
+	RAII_VAR(struct ast_json *, bus_event, NULL, ast_json_unref);
+	RAII_VAR(struct ast_json *, json, NULL, ast_json_unref);
+	RAII_VAR(struct ast_json *, headers, NULL, ast_json_unref);
+	RAII_VAR(char *, routing_key, NULL, ast_free);
+	const char *event_name = NULL;
+	const char *routing_key_prefix = "stasis.channel";
+
 	if (stasis_subscription_final_message(sub, message)) {
 		return;
 	}
 
-	stasis_amqp_channel_log(message);
+	if (!(json = stasis_message_to_json(message, NULL))) {
+		return;
+	}
 
+	if (!(event_name = ast_json_object_string_get(json, "type"))) {
+		ast_debug(5, "ignoring stasis event with no type\n");
+		return;
+	}
+
+	bus_event = ast_json_pack("{s: s, s: o}", "name", event_name, "data", json);
+	if (!bus_event) {
+		ast_log(LOG_ERROR, "failed to create json object\n");
+		return;
+	}
+
+	headers = ast_json_pack("{s: s, s: s}",
+			"name", event_name,
+			"category", "stasis");
+	if (!headers) {
+		ast_log(LOG_ERROR, "failed to create AMQP headers\n");
+		return;
+	}
+
+	if (!(routing_key = new_routing_key(routing_key_prefix, event_name))) {
+		ast_log(LOG_ERROR, "failed to create routing key\n");
+		return;
+	}
+
+	publish_to_amqp(bus_event, headers, routing_key);
 }
 
 static int manager_event_to_json(struct ast_json *json, const char *event_name, char *fields)
@@ -272,15 +311,14 @@ static int manager_event_to_json(struct ast_json *json, const char *event_name, 
 	char *line = NULL;
 	char *word = NULL;
 	char *key, *value;
-	int res = 0;
 
-	json_value = ast_json_string_create(event_name);
-	if (!json_value) {
+	if (!(json_value = ast_json_string_create(event_name))) {
+		ast_log(LOG_ERROR, "failed to create json string for AMI event name\n");
 		return -1;
 	}
 
-	res = ast_json_object_set(json, "Event", json_value);
-	if (res) {
+	if (ast_json_object_set(json, "Event", json_value)) {
+		ast_log(LOG_DEBUG, "failed to set json value Event: %s\n", event_name);
 		return -1;
 	}
 
@@ -296,13 +334,11 @@ static int manager_event_to_json(struct ast_json *json, const char *event_name, 
 			}
 		}
 
-		json_value = ast_json_string_create(value);
-		if (!json_value) {
+		if (!(json_value = ast_json_string_create(value))) {
 			continue;
 		}
 
-		res = ast_json_object_set(json, key, json_value);
-		if (res) {
+		if (ast_json_object_set(json, key, json_value)) {
 			ast_log(LOG_DEBUG, "failed to set json value %s: %s\n", key, value);
 			return -1;
 		}
@@ -311,25 +347,50 @@ static int manager_event_to_json(struct ast_json *json, const char *event_name, 
 	return 0;
 }
 
-static void stasis_amqp_message_handler(void *data, const char *app_name, struct ast_json *message)
+static void stasis_app_event_handler(void *data, const char *app_name, struct ast_json *stasis_event)
 {
-	ast_debug(4, "called stasis amqp handler for application: '%s'\n", app_name);
+	RAII_VAR(struct ast_json *, bus_event, NULL, ast_json_unref);
+	RAII_VAR(struct ast_json *, headers, NULL, ast_json_unref);
 	RAII_VAR(char *, routing_key, NULL, ast_free);
+	const char *event_name = ast_json_object_string_get(stasis_event, "type");
 	const char *routing_key_prefix = "stasis.app";
 
-	if (!(routing_key = new_routing_key(routing_key_prefix, app_name))) {
+	ast_debug(4, "called stasis amqp handler for application: '%s'\n", app_name);
+
+	if (!event_name) {
+		ast_debug(5, "ignoring stasis event with no type\n");
 		return;
 	}
 
-	ast_debug(3, "publishing with routing key: '%s'\n", routing_key);
-
-	if (ast_json_object_set(message, "application", ast_json_string_create(app_name))) {
+	if (ast_json_object_set(stasis_event, "application", ast_json_string_create(app_name))) {
 		ast_log(LOG_ERROR, "unable to set application item in json");
+		return;
+	};
+
+	bus_event = ast_json_pack("{s: s, s: o, s: s}",
+		"name", event_name,
+		"data", stasis_event,
+		"application", app_name);
+	if (!bus_event) {
+		ast_log(LOG_ERROR, "failed to create json object\n");
+		return;
 	}
 
-	publish_to_amqp(routing_key, "stasis_app", NULL, message);
+	headers = ast_json_pack("{s: s, s: s, s: s}",
+			"name", event_name,
+			"category", "stasis",
+			"application_name", app_name);
+	if (!headers) {
+		ast_log(LOG_ERROR, "failed to create AMQP headers\n");
+		return;
+	}
 
-	return;
+	if (!(routing_key = new_routing_key(routing_key_prefix, app_name))) {
+		ast_log(LOG_ERROR, "failed to create routing key\n");
+		return;
+	}
+
+	publish_to_amqp(bus_event, headers, routing_key);
 }
 
 
@@ -342,40 +403,61 @@ static void stasis_amqp_message_handler(void *data, const char *app_name, struct
  *              topics.
  * \param message The message itself.
  */
-static void send_ami_event_to_amqp(void *data, struct stasis_subscription *sub,
+static void ami_event_handler(void *data, struct stasis_subscription *sub,
 									struct stasis_message *message)
 {
-	RAII_VAR(struct ast_json *, json, NULL, ast_json_unref);
-	RAII_VAR(char *, routing_key, NULL, ast_free);
+	RAII_VAR(struct ast_json *, bus_event, NULL, ast_json_unref);
+	RAII_VAR(struct ast_json *, headers, NULL, ast_json_unref);
+	RAII_VAR(struct ast_json *, event_data,  NULL, ast_json_unref);
 	RAII_VAR(struct ast_manager_event_blob *, manager_blob, NULL, ao2_cleanup);
-	const char *routing_key_prefix = "stasis.ami";
-	int res = 0;
-
-	manager_blob = stasis_message_to_ami(message);
-	json = ast_json_object_create();
-
-	if (!manager_blob) {
-		return;
-	}
-
-	if (!json) {
-		return;
-	}
-
 	RAII_VAR(char *, fields, NULL, ast_free);
-	fields = ast_strdup(manager_blob->extra_fields);
+	const char *routing_key_prefix = "ami";
+	RAII_VAR(char *, routing_key, NULL, ast_free);
 
-	res = manager_event_to_json(json, manager_blob->manager_event, fields);
-	if (res) {
+	if (!stasis_message_can_be_ami(message)) {
+		return;
+	}
+
+	if (!(manager_blob = stasis_message_to_ami(message))) {
+		/* message has no AMI representation */
+		return;
+	}
+
+	if (manager_blob->extra_fields) {
+		if (!(fields = ast_strdup(manager_blob->extra_fields))) {
+			ast_log(LOG_ERROR, "failed to copy AMI event fields\n");
+			return;
+		}
+	}
+
+	if (!(event_data = ast_json_object_create())) {
+		ast_log(LOG_ERROR, "failed to create json object\n");
+		return;
+	}
+
+	if (manager_event_to_json(event_data, manager_blob->manager_event, fields)) {
 		ast_log(LOG_ERROR, "failed to create AMI message json payload for %s\n", manager_blob->extra_fields);
 		return;
 	}
 
-	if (!(routing_key = new_routing_key(routing_key_prefix, manager_blob->manager_event))) {
+	bus_event = ast_json_pack("{s: s, s: o}", "name", manager_blob->manager_event, "data", event_data);
+	if (!bus_event) {
+		ast_log(LOG_ERROR, "failed to to create json object\n");
 		return;
 	}
 
-	publish_to_amqp(routing_key, manager_blob->manager_event, stasis_message_eid(message), json);
+	if (!(routing_key = new_routing_key(routing_key_prefix, manager_blob->manager_event))) {
+		ast_log(LOG_ERROR, "failed to create routing key\n");
+		return;
+	}
+
+	headers = ast_json_pack("{s: s, s: s}", "name", manager_blob->manager_event, "category", "ami");
+	if (!headers) {
+		ast_log(LOG_ERROR, "failed to create AMQP headers\n");
+		return;
+	}
+
+	publish_to_amqp(bus_event, headers, routing_key);
 }
 
 char *new_routing_key(const char *prefix, const char *suffix)
@@ -407,42 +489,6 @@ char *new_routing_key(const char *prefix, const char *suffix)
 	return routing_key;
 }
 
-/*!
- * \brief Channel handler for AMQP.
- *
- * \param message to Log.
- * \return 0 on success.
- * \return -1 on error.
- */
-static int stasis_amqp_channel_log(struct stasis_message *message)
-{
-	RAII_VAR(struct ast_json *, json, NULL, ast_json_free);
-	RAII_VAR(struct ast_json *, channel, NULL, ast_json_free);
-	RAII_VAR(struct ast_json *, unique_id, NULL, ast_json_free);
-	RAII_VAR(char *, routing_key, NULL, ast_free);
-	const char *routing_key_prefix = "stasis.channel";
-
-	if (!(json = stasis_message_to_json(message, NULL))) {
-		return -1;
-	}
-
-	if (!(channel = ast_json_object_get(json, "channel"))) {
-		return -1;
-	}
-
-
-	if (!(unique_id = ast_json_object_get(channel, "id"))) {
-		return -1;
-	}
-
-	if (!(routing_key = new_routing_key(routing_key_prefix, ast_json_string_get(unique_id)))) {
-		return -1;
-	}
-
-	publish_to_amqp(routing_key, "stasis_channel", stasis_message_eid(message), json);
-
-	return 0;
-}
 
 struct ast_eid *eid_copy(const struct ast_eid *eid)
 {
@@ -459,61 +505,16 @@ struct ast_eid *eid_copy(const struct ast_eid *eid)
 	return new;
 }
 
-static int publish_to_amqp(const char *topic, const char *name, const struct ast_eid *eid, struct ast_json *body)
+static int publish_to_amqp(struct ast_json *body, struct ast_json *headers, const char *routing_key)
 {
 	RAII_VAR(struct stasis_amqp_conf *, conf, NULL, ao2_cleanup);
 	RAII_VAR(char *, msg, NULL, ast_json_free);
-	RAII_VAR(struct ast_json *, json_msg, NULL, ast_json_free);
-	RAII_VAR(struct ast_json *, json_name, NULL, ast_json_unref);
-	RAII_VAR(struct ast_json *, json_eid, NULL, ast_json_unref);
-	RAII_VAR(struct ast_eid *, message_eid, NULL, ast_free);
-	char eid_str[128];
-	int res;
-
-	message_eid = eid_copy(eid != NULL ? eid : &ast_eid_default);
-	ast_eid_to_str(eid_str, sizeof(eid_str), message_eid);
-
-	if (!name) {
-		if ((json_eid = ast_json_string_create(eid_str)) == NULL) {
-			ast_log(LOG_ERROR, "failed to create json string for eid\n");
-			return -1;
-		}
-
-		if ((json_name = ast_json_string_create(name)) == NULL) {
-			ast_log(LOG_ERROR, "failed to create json string for name\n");
-			return -1;
-		}
-
-		if ((json_msg = ast_json_object_create()) == NULL) {
-			ast_log(LOG_ERROR, "failed to create json object\n");
-			return -1;
-		}
-
-		if (ast_json_object_set(json_msg, "event", json_name)) {
-			ast_log(LOG_ERROR, "failed to set event name\n");
-			return -1;
-		}
-
-		if (ast_json_object_set(json_msg, "eid", json_eid)) {
-			ast_log(LOG_ERROR, "failed to set event eid\n");
-			return -1;
-		}
-
-		if (ast_json_object_set(json_msg, "data", body)) {
-			ast_log(LOG_ERROR, "failed to set event data\n");
-			return -1;
-		}
-
-		if ((msg = ast_json_dump_string(json_msg)) == NULL) {
-			ast_log(LOG_ERROR, "failed to convert json to string\n");
-			return -1;
-		}
-	} else {
-		if ((msg = ast_json_dump_string(body)) == NULL) {
-			ast_log(LOG_ERROR, "failed to convert json to string\n");
-			return -1;
-		}
-	}
+	struct ast_json_iter *iter = NULL;
+	amqp_table_t *header_table = NULL;
+	const char *connection_name = NULL;
+	int nb_headers = 0;
+	int i = 0;
+	int result = 0;
 
 	amqp_basic_properties_t props = {
 		._flags = AMQP_BASIC_DELIVERY_MODE_FLAG | AMQP_BASIC_CONTENT_TYPE_FLAG,
@@ -522,30 +523,64 @@ static int publish_to_amqp(const char *topic, const char *name, const struct ast
 	};
 
 	conf = ao2_global_obj_ref(confs);
+	if (!conf || !conf->global || !conf->global->connection) {
+		ast_log(LOG_ERROR, "cannot publish to AMQP without configured connection\n");
+		return -1;
+	}
+	connection_name = conf->global->connection;
 
-
-	ast_assert(conf && conf->global && conf->global->connection);
-
-	struct ast_amqp_connection *amqp = ast_amqp_get_connection(conf->global->connection);
-	if (!amqp) {
-		ast_log(LOG_ERROR, "Failed to get an AMQP connection\n");
+	if (!conf->global->exchange) {
+		ast_log(LOG_ERROR, "cannot publish to AMQP without a configured exchange\n");
 		return -1;
 	}
 
-	res = ast_amqp_basic_publish(amqp,
+	struct ast_amqp_connection *conn = ast_amqp_get_connection(connection_name);
+	if (!conn) {
+		ast_log(LOG_ERROR, "Failed to get an AMQP connection for %s\n", connection_name);
+		return -1;
+	}
+
+	if ((msg = ast_json_dump_string(body)) == NULL) {
+		ast_log(LOG_ERROR, "failed to convert json to string\n");
+		return -1;
+	}
+
+	if (headers) {
+		nb_headers = ast_json_object_size(headers);
+
+		if (nb_headers > 0) {
+			header_table = &props.headers;
+			header_table->num_entries = nb_headers;
+			header_table->entries = ast_calloc(nb_headers, sizeof(amqp_table_entry_t));
+			for (iter = ast_json_object_iter(headers); iter; iter = ast_json_object_iter_next(headers, iter)) {
+				header_table->entries[i].key = amqp_cstring_bytes(ast_json_object_iter_key(iter));
+				header_table->entries[i].value.kind = AMQP_FIELD_KIND_UTF8;
+				header_table->entries[i].value.value.bytes = amqp_cstring_bytes(ast_json_string_get(ast_json_object_iter_value(iter)));
+				i++;
+			}
+			props._flags |= AMQP_BASIC_HEADERS_FLAG;
+		}
+	} else {
+		props.headers.num_entries = 0;
+	}
+
+	if (ast_amqp_basic_publish(
+		conn,
 		amqp_cstring_bytes(conf->global->exchange),
-		amqp_cstring_bytes(topic),
+		amqp_cstring_bytes(routing_key), /* routing key */
 		0, /* mandatory; don't return unsendable messages */
 		0, /* immediate; allow messages to be queued */
 		&props,
-		amqp_cstring_bytes(msg));
-
-	if (res != 0) {
+		amqp_cstring_bytes(msg))) {
 		ast_log(LOG_ERROR, "Error publishing stasis to AMQP\n");
-		return -1;
+		result = -1;
 	}
 
-	return 0;
+	if (props.headers.num_entries > 0) {
+		ast_free(props.headers.entries);
+	}
+
+	return result;
 }
 
 
@@ -562,12 +597,13 @@ static int load_config(int reload)
 	aco_option_register(&cfg_info, "connection", ACO_EXACT,
 		global_options, "", OPT_STRINGFIELD_T, 0,
 		STRFLDSET(struct stasis_amqp_global_conf, connection));
-	aco_option_register(&cfg_info, "queue", ACO_EXACT,
-		global_options, "asterisk_stasis", OPT_STRINGFIELD_T, 0,
-		STRFLDSET(struct stasis_amqp_global_conf, queue));
 	aco_option_register(&cfg_info, "exchange", ACO_EXACT,
 		global_options, "", OPT_STRINGFIELD_T, 0,
 		STRFLDSET(struct stasis_amqp_global_conf, exchange));
+	aco_option_register(&cfg_info, "publish_ami_events", ACO_EXACT,
+		global_options, "yes", OPT_BOOL_T, 1, FLDSET(struct stasis_amqp_global_conf, publish_ami_events));
+	aco_option_register(&cfg_info, "publish_channel_events", ACO_EXACT,
+		global_options, "yes", OPT_BOOL_T, 1, FLDSET(struct stasis_amqp_global_conf, publish_channel_events));
 
 
 	switch (aco_process_config(&cfg_info, reload)) {
@@ -587,71 +623,29 @@ static int load_config(int reload)
 
 static int unload_module(void)
 {
+	RAII_VAR(struct stasis_amqp_conf *, conf, NULL, ao2_cleanup);
+
 	if (stasis_app_sched_context) {
 		ast_sched_context_destroy(stasis_app_sched_context);
 		stasis_app_sched_context = NULL;
 	}
 
-	stasis_unsubscribe_and_join(sub);
-	stasis_unsubscribe_and_join(manager);
-	sub = NULL;
-	manager = NULL;
+	conf = ao2_global_obj_ref(confs);
+	if (conf->global->publish_channel_events) {
+		stasis_unsubscribe_and_join(sub);
+	}
+	if (conf->global->publish_ami_events) {
+		stasis_unsubscribe_and_join(manager);
+	}
+
 	return 0;
-}
-
-static void stasis_app_message_handler(void *data, const char *app_name, struct ast_json *message)
-{
-	RAII_VAR(char *, routing_key, NULL, ast_free);
-	const char *routing_key_prefix = "stasis.app";
-
-	if (!(routing_key = new_routing_key(routing_key_prefix, app_name))) {
-		return;
-	}
-
-	publish_to_amqp(routing_key, "stasis_app", NULL, message);
-
-	return;
-}
-
-int register_to_new_stasis_app(const void *data)
-{
-	struct ao2_container *apps;
-	struct ao2_iterator it_apps;
-	char *app;
-	int res = 0;
-
-	if (ast_sched_add(stasis_app_sched_context, 1000, register_to_new_stasis_app, NULL) == -1) {
-		ast_log(LOG_ERROR, "failed to reschedule the stasis app registration\n");
-		return -1;
-	}
-
-	/* Subscription to receive all of the messages from ari applications registered */
-	if (!(apps = stasis_app_get_all())) {
-		ast_log(LOG_ERROR, "Unable to retrieve registered applications!\n");
-		return -1;
-	}
-
-	it_apps = ao2_iterator_init(apps, 0);
-	while ((app = ao2_iterator_next(&it_apps))) {
-		struct app *new_app = allocate_app(app);
-		if (ao2_find(registered_apps, new_app, OBJ_SEARCH_OBJECT)) {
-			continue;
-		}
-		ao2_link(registered_apps, new_app);
-		stasis_app_register_all(app, &stasis_app_message_handler, NULL);
-		ao2_ref(app, -1);
-	}
-	ao2_iterator_destroy(&it_apps);
-	ao2_ref(apps, -1);
-
-	return res;
 }
 
 int ast_subscribe_to_stasis(const char *app_name)
 {
 	int res = 0;
 	ast_debug(1, "called subscribe to stasis for application: '%s'\n", app_name);
-	res = stasis_app_register(app_name, &stasis_amqp_message_handler, NULL);
+	res = stasis_app_register(app_name, &stasis_app_event_handler, NULL);
 	return res;
 }
 
@@ -664,34 +658,50 @@ int ast_unsubscribe_from_stasis(const char *app_name)
 
 static int load_module(void)
 {
+	RAII_VAR(struct stasis_amqp_conf *, conf, NULL, ao2_cleanup);
+
 	if (load_config(0) != 0) {
 		ast_log(LOG_WARNING, "Configuration failed to load\n");
 		return AST_MODULE_LOAD_DECLINE;
 	}
 
-	/* Subscription to receive all of the messages from manager topic */
-	manager = stasis_subscribe(ast_manager_get_topic(), send_ami_event_to_amqp, NULL);
-	if (!manager) {
-		return AST_MODULE_LOAD_DECLINE;
+	conf = ao2_global_obj_ref(confs);
+
+	if (conf->global->publish_ami_events) {
+		ast_debug(3, "subscribing to AMI events\n");
+		/* Subscription to receive all of the messages from manager topic */
+		if (!(manager = stasis_subscribe(ast_manager_get_topic(), ami_event_handler, NULL))) {
+			return AST_MODULE_LOAD_DECLINE;
+		}
 	}
 
 	if (!(stasis_app_sched_context = ast_sched_context_create())) {
 		ast_log(LOG_ERROR, "failed to create scheduler context\n");
-		/* unsubscribe from manager and sub */
+		if (conf->global->publish_ami_events) {
+			stasis_unsubscribe_and_join(manager);
+		}
 		return AST_MODULE_LOAD_DECLINE;
 	}
 
-	/* Subscription to receive all of the messages from channel topic */
-	sub = stasis_subscribe(ast_channel_topic_all(), send_channel_event_to_amqp, NULL);
-	if (!sub) {
-		/* unsubscribe from manager */
-		return AST_MODULE_LOAD_DECLINE;
+	if (conf->global->publish_channel_events) {
+		ast_debug(3, "subscribing to channel events\n");
+		/* Subscription to receive all of the messages from channel topic */
+		if (!(sub = stasis_subscribe(ast_channel_topic_all(), stasis_channel_event_handler, NULL))) {
+			if (conf->global->publish_ami_events) {
+				stasis_unsubscribe_and_join(manager);
+			}
+			return AST_MODULE_LOAD_DECLINE;
+		}
 	}
 
 	if (ast_sched_start_thread(stasis_app_sched_context)) {
 		ast_log(LOG_ERROR, "failed to start scheduler thread\n");
-		/* unsubscribe from manager and sub */
-		/* destroy context */
+		if (conf->global->publish_ami_events) {
+			stasis_unsubscribe_and_join(manager);
+		}
+		if (conf->global->publish_channel_events) {
+			stasis_unsubscribe_and_join(sub);
+		}
 		return AST_MODULE_LOAD_DECLINE;
 	}
 
