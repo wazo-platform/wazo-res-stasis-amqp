@@ -264,9 +264,9 @@ static void stasis_channel_event_handler(void *data, struct stasis_subscription 
 	struct stasis_message *message)
 {
 	RAII_VAR(struct ast_json *, bus_event, NULL, ast_json_unref);
-	RAII_VAR(struct ast_json *, json, NULL, ast_json_unref);
 	RAII_VAR(struct ast_json *, headers, NULL, ast_json_unref);
 	RAII_VAR(char *, routing_key, NULL, ast_free);
+	struct ast_json *json = NULL;
 	const char *event_name = NULL;
 	const char *routing_key_prefix = "stasis.channel";
 
@@ -280,6 +280,7 @@ static void stasis_channel_event_handler(void *data, struct stasis_subscription 
 
 	if (!(event_name = ast_json_object_string_get(json, "type"))) {
 		ast_debug(5, "ignoring stasis event with no type\n");
+		ast_json_unref(json);
 		return;
 	}
 
@@ -408,9 +409,9 @@ static void ami_event_handler(void *data, struct stasis_subscription *sub,
 {
 	RAII_VAR(struct ast_json *, bus_event, NULL, ast_json_unref);
 	RAII_VAR(struct ast_json *, headers, NULL, ast_json_unref);
-	RAII_VAR(struct ast_json *, event_data,  NULL, ast_json_unref);
 	RAII_VAR(struct ast_manager_event_blob *, manager_blob, NULL, ao2_cleanup);
 	RAII_VAR(char *, fields, NULL, ast_free);
+	struct ast_json *event_data = NULL;
 	const char *routing_key_prefix = "ami";
 	RAII_VAR(char *, routing_key, NULL, ast_free);
 
@@ -437,6 +438,7 @@ static void ami_event_handler(void *data, struct stasis_subscription *sub,
 
 	if (manager_event_to_json(event_data, manager_blob->manager_event, fields)) {
 		ast_log(LOG_ERROR, "failed to create AMI message json payload for %s\n", manager_blob->extra_fields);
+		ast_json_unref(event_data);
 		return;
 	}
 
