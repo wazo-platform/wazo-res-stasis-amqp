@@ -113,6 +113,7 @@ static int publish_to_amqp(struct ast_json *body, struct ast_json *headers, cons
 int register_to_new_stasis_app(const void *data);
 char *new_routing_key(const char *prefix, const char *suffix);
 struct ast_eid *eid_copy(const struct ast_eid *eid);
+struct ast_json *create_stasis_event_headers(const char *app_name, const char *event_name, const char *category);
 
 /*! \brief stasis_amqp configuration */
 struct stasis_amqp_conf {
@@ -266,9 +267,9 @@ static void stasis_channel_event_handler(void *data, struct stasis_subscription 
 	RAII_VAR(struct ast_json *, bus_event, NULL, ast_json_unref);
 	RAII_VAR(struct ast_json *, json, NULL, ast_json_unref);
 	RAII_VAR(struct ast_json *, headers, NULL, ast_json_unref);
-	RAII_VAR(char *, routing_key, NULL, ast_free);
 	const char *event_name = NULL;
 	const char *routing_key_prefix = "stasis.channel";
+	RAII_VAR(char *, routing_key, NULL, ast_free);
 
 	if (stasis_subscription_final_message(sub, message)) {
 		return;
@@ -283,15 +284,23 @@ static void stasis_channel_event_handler(void *data, struct stasis_subscription 
 		return;
 	}
 
-	bus_event = ast_json_pack("{s: s, s: o}", "name", event_name, "data", json);
+	bus_event = ast_json_object_create();
 	if (!bus_event) {
 		ast_log(LOG_ERROR, "failed to create json object\n");
 		return;
 	}
 
-	headers = ast_json_pack("{s: s, s: s}",
-			"name", event_name,
-			"category", "stasis");
+	if (ast_json_object_set(bus_event, "name", ast_json_string_create(event_name))) {
+		ast_log(LOG_ERROR, "failed to set name on bus message\n");
+		return;
+	}
+
+	if (ast_json_object_set(bus_event, "data", json)) {
+		ast_log(LOG_ERROR, "failed to add stasis message to bus event payload\n");
+		return;
+	}
+
+	headers = create_stasis_event_headers(NULL, event_name, "stasis");
 	if (!headers) {
 		ast_log(LOG_ERROR, "failed to create AMQP headers\n");
 		return;
@@ -347,6 +356,35 @@ static int manager_event_to_json(struct ast_json *json, const char *event_name, 
 	return 0;
 }
 
+struct ast_json *create_stasis_event_headers(const char *app_name, const char *event_name, const char *category)
+{
+	RAII_VAR(struct ast_json *, headers, ast_json_object_create(), ast_json_unref);
+
+	if (!headers) {
+		ast_log(LOG_ERROR, "failed to create json object\n");
+		return NULL;
+	}
+
+	if (ast_json_object_set(headers, "name", ast_json_string_create(event_name))) {
+		ast_log(LOG_ERROR, "failed to set the name header\n");
+		return NULL;
+	}
+
+	if (ast_json_object_set(headers, "category", ast_json_string_create(category))) {
+		ast_log(LOG_ERROR, "failed to set the category header\n");
+		return NULL;
+	}
+
+	if (app_name) {
+		if (ast_json_object_set(headers, "application_name", ast_json_string_create(app_name))) {
+			ast_log(LOG_ERROR, "failed to set the application_name header\n");
+			return NULL;
+		}
+	}
+
+	return ast_json_ref(headers);
+}
+
 static void stasis_app_event_handler(void *data, const char *app_name, struct ast_json *stasis_event)
 {
 	RAII_VAR(struct ast_json *, bus_event, NULL, ast_json_unref);
@@ -362,24 +400,28 @@ static void stasis_app_event_handler(void *data, const char *app_name, struct as
 		return;
 	}
 
-	if (ast_json_object_set(stasis_event, "application", ast_json_string_create(app_name))) {
-		ast_log(LOG_ERROR, "unable to set application item in json");
-		return;
-	};
-
-	bus_event = ast_json_pack("{s: s, s: o, s: s}",
-		"name", event_name,
-		"data", stasis_event,
-		"application", app_name);
+	bus_event = ast_json_object_create();
 	if (!bus_event) {
 		ast_log(LOG_ERROR, "failed to create json object\n");
 		return;
 	}
 
-	headers = ast_json_pack("{s: s, s: s, s: s}",
-			"name", event_name,
-			"category", "stasis",
-			"application_name", app_name);
+	if (ast_json_object_set(bus_event, "name", ast_json_string_create(event_name))) {
+		ast_log(LOG_ERROR, "failed to set name on bus message\n");
+		return;
+	}
+
+	if (ast_json_object_set(bus_event, "data", stasis_event)) {
+		ast_log(LOG_ERROR, "failed to add stasis message to bus event payload\n");
+		return;
+	}
+
+	if (ast_json_object_set(stasis_event, "application", ast_json_string_create(app_name))) {
+		ast_log(LOG_ERROR, "unable to set application item in json");
+		return;
+	}
+
+	headers = create_stasis_event_headers(app_name, event_name, "stasis");
 	if (!headers) {
 		ast_log(LOG_ERROR, "failed to create AMQP headers\n");
 		return;
@@ -408,9 +450,9 @@ static void ami_event_handler(void *data, struct stasis_subscription *sub,
 {
 	RAII_VAR(struct ast_json *, bus_event, NULL, ast_json_unref);
 	RAII_VAR(struct ast_json *, headers, NULL, ast_json_unref);
-	RAII_VAR(struct ast_json *, event_data,  NULL, ast_json_unref);
 	RAII_VAR(struct ast_manager_event_blob *, manager_blob, NULL, ao2_cleanup);
 	RAII_VAR(char *, fields, NULL, ast_free);
+	struct ast_json *event_data = NULL;
 	const char *routing_key_prefix = "ami";
 	RAII_VAR(char *, routing_key, NULL, ast_free);
 
@@ -420,6 +462,16 @@ static void ami_event_handler(void *data, struct stasis_subscription *sub,
 
 	if (!(manager_blob = stasis_message_to_ami(message))) {
 		/* message has no AMI representation */
+		return;
+	}
+
+	if (!(bus_event = ast_json_object_create())) {
+		ast_log(LOG_ERROR, "failed to to create json object\n");
+		return;
+	}
+
+	if (ast_json_object_set(bus_event, "name", ast_json_string_create(manager_blob->manager_event))) {
+		ast_log(LOG_ERROR, "failed to set name on bus message\n");
 		return;
 	}
 
@@ -440,9 +492,8 @@ static void ami_event_handler(void *data, struct stasis_subscription *sub,
 		return;
 	}
 
-	bus_event = ast_json_pack("{s: s, s: o}", "name", manager_blob->manager_event, "data", event_data);
-	if (!bus_event) {
-		ast_log(LOG_ERROR, "failed to to create json object\n");
+	if (ast_json_object_set(bus_event, "data", event_data)) {
+		ast_log(LOG_ERROR, "failed to set data field on bus message\n");
 		return;
 	}
 
@@ -451,7 +502,7 @@ static void ami_event_handler(void *data, struct stasis_subscription *sub,
 		return;
 	}
 
-	headers = ast_json_pack("{s: s, s: s}", "name", manager_blob->manager_event, "category", "ami");
+	headers = create_stasis_event_headers(NULL, manager_blob->manager_event, "ami");
 	if (!headers) {
 		ast_log(LOG_ERROR, "failed to create AMQP headers\n");
 		return;
