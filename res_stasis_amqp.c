@@ -105,9 +105,6 @@ struct ao2_container *registered_apps = NULL;
 static struct stasis_subscription *sub;
 static struct stasis_subscription *manager;
 
-int app_cmp(void *obj, void *arg, int flags);
-struct app *allocate_app(const char *name);
-void destroy_app(void *obj);
 static int setup_amqp(void);
 static int publish_to_amqp(struct ast_json *body, struct ast_json *headers, const char *routing_key);
 int register_to_new_stasis_app(const void *data);
@@ -149,37 +146,6 @@ static struct aco_type global_option = {
 };
 
 static struct aco_type *global_options[] = ACO_TYPES(&global_option);
-
-int app_cmp(void *obj, void *arg, int flags)
-{
-	const struct app *left = obj;
-	const struct app *right = arg;
-
-	switch (flags & OBJ_SEARCH_MASK) {
-	case OBJ_SEARCH_OBJECT:
-		return strcmp(left->name, right->name) == 0 ? CMP_MATCH : 0;
-	default:
-		break;
-	}
-	return 0;
-}
-
-struct app *allocate_app(const char *name)
-{
-	struct app *new_app;
-
-	new_app = ao2_alloc(sizeof(*new_app), destroy_app);
-	new_app->name = ast_strdup(name);
-
-	return new_app;
-}
-
-void destroy_app(void *obj)
-{
-	struct app *to_destroy = obj;
-
-	ast_free(to_destroy->name);
-}
 
 static void conf_global_dtor(void *obj)
 {
