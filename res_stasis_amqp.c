@@ -322,25 +322,27 @@ static void stasis_app_event_handler(void *data, const char *app_name, struct as
 	const char *event_name = ast_json_object_string_get(stasis_event, "type");
 	const char *routing_key_prefix = "stasis.app";
 
+	ast_json_ref(stasis_event);  // Bumping the reference to this event to make sure it stays in memory until we're done
+
 	ast_debug(4, "called stasis amqp handler for application: '%s'\n", app_name);
 
 	if (!event_name) {
 		ast_debug(5, "ignoring stasis event with no type\n");
-		return;
+		goto done;
 	}
 
 	if (ast_json_object_set(stasis_event, "application", ast_json_string_create(app_name))) {
 		ast_log(LOG_ERROR, "unable to set application item in json");
-		return;
+		goto done;
 	};
 
-	bus_event = ast_json_pack("{s: s, s: o, s: s}",
+	bus_event = ast_json_pack("{s: s, s: O, s: s}",
 		"name", event_name,
 		"data", stasis_event,
 		"application", app_name);
 	if (!bus_event) {
 		ast_log(LOG_ERROR, "failed to create json object\n");
-		return;
+		goto done;
 	}
 
 	headers = ast_json_pack("{s: s, s: s, s: s}",
@@ -349,15 +351,18 @@ static void stasis_app_event_handler(void *data, const char *app_name, struct as
 			"application_name", app_name);
 	if (!headers) {
 		ast_log(LOG_ERROR, "failed to create AMQP headers\n");
-		return;
+		goto done;
 	}
 
 	if (!(routing_key = new_routing_key(routing_key_prefix, app_name))) {
 		ast_log(LOG_ERROR, "failed to create routing key\n");
-		return;
+		goto done;
 	}
 
 	publish_to_amqp(bus_event, headers, routing_key);
+
+done:
+	ast_json_unref(stasis_event);
 }
 
 
