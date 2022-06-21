@@ -319,10 +319,11 @@ static void stasis_app_event_handler(void *data, const char *app_name, struct as
 	RAII_VAR(struct ast_json *, bus_event, NULL, ast_json_unref);
 	RAII_VAR(struct ast_json *, headers, NULL, ast_json_unref);
 	RAII_VAR(char *, routing_key, NULL, ast_free);
-	const char *event_name = ast_json_object_string_get(stasis_event, "type");
 	const char *routing_key_prefix = "stasis.app";
 
 	ast_json_ref(stasis_event);  // Bumping the reference to this event to make sure it stays in memory until we're done
+
+	char *event_name = ast_strdupa(ast_json_object_string_get(stasis_event, "type"));
 
 	ast_debug(4, "called stasis amqp handler for application: '%s'\n", app_name);
 
