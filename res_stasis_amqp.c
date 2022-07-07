@@ -105,9 +105,6 @@ struct ao2_container *registered_apps = NULL;
 static struct stasis_subscription *sub;
 static struct stasis_subscription *manager;
 
-int app_cmp(void *obj, void *arg, int flags);
-struct app *allocate_app(const char *name);
-void destroy_app(void *obj);
 static int setup_amqp(void);
 static int publish_to_amqp(struct ast_json *body, struct ast_json *headers, const char *routing_key);
 int register_to_new_stasis_app(const void *data);
@@ -149,37 +146,6 @@ static struct aco_type global_option = {
 };
 
 static struct aco_type *global_options[] = ACO_TYPES(&global_option);
-
-int app_cmp(void *obj, void *arg, int flags)
-{
-	const struct app *left = obj;
-	const struct app *right = arg;
-
-	switch (flags & OBJ_SEARCH_MASK) {
-	case OBJ_SEARCH_OBJECT:
-		return strcmp(left->name, right->name) == 0 ? CMP_MATCH : 0;
-	default:
-		break;
-	}
-	return 0;
-}
-
-struct app *allocate_app(const char *name)
-{
-	struct app *new_app;
-
-	new_app = ao2_alloc(sizeof(*new_app), destroy_app);
-	new_app->name = ast_strdup(name);
-
-	return new_app;
-}
-
-void destroy_app(void *obj)
-{
-	struct app *to_destroy = obj;
-
-	ast_free(to_destroy->name);
-}
 
 static void conf_global_dtor(void *obj)
 {
@@ -264,9 +230,9 @@ static void stasis_channel_event_handler(void *data, struct stasis_subscription 
 	struct stasis_message *message)
 {
 	RAII_VAR(struct ast_json *, bus_event, NULL, ast_json_unref);
-	RAII_VAR(struct ast_json *, json, NULL, ast_json_unref);
 	RAII_VAR(struct ast_json *, headers, NULL, ast_json_unref);
 	RAII_VAR(char *, routing_key, NULL, ast_free);
+	struct ast_json *json = NULL;
 	const char *event_name = NULL;
 	const char *routing_key_prefix = "stasis.channel";
 
@@ -280,12 +246,14 @@ static void stasis_channel_event_handler(void *data, struct stasis_subscription 
 
 	if (!(event_name = ast_json_object_string_get(json, "type"))) {
 		ast_debug(5, "ignoring stasis event with no type\n");
+		ast_json_unref(json);
 		return;
 	}
 
 	bus_event = ast_json_pack("{s: s, s: o}", "name", event_name, "data", json);
 	if (!bus_event) {
 		ast_log(LOG_ERROR, "failed to create json object\n");
+		ast_json_unref(json);
 		return;
 	}
 
@@ -352,28 +320,31 @@ static void stasis_app_event_handler(void *data, const char *app_name, struct as
 	RAII_VAR(struct ast_json *, bus_event, NULL, ast_json_unref);
 	RAII_VAR(struct ast_json *, headers, NULL, ast_json_unref);
 	RAII_VAR(char *, routing_key, NULL, ast_free);
-	const char *event_name = ast_json_object_string_get(stasis_event, "type");
 	const char *routing_key_prefix = "stasis.app";
+
+	ast_json_ref(stasis_event);  // Bumping the reference to this event to make sure it stays in memory until we're done
+
+	char *event_name = ast_strdupa(ast_json_object_string_get(stasis_event, "type"));
 
 	ast_debug(4, "called stasis amqp handler for application: '%s'\n", app_name);
 
 	if (!event_name) {
 		ast_debug(5, "ignoring stasis event with no type\n");
-		return;
+		goto done;
 	}
 
 	if (ast_json_object_set(stasis_event, "application", ast_json_string_create(app_name))) {
 		ast_log(LOG_ERROR, "unable to set application item in json");
-		return;
+		goto done;
 	};
 
-	bus_event = ast_json_pack("{s: s, s: o, s: s}",
+	bus_event = ast_json_pack("{s: s, s: O, s: s}",
 		"name", event_name,
 		"data", stasis_event,
 		"application", app_name);
 	if (!bus_event) {
 		ast_log(LOG_ERROR, "failed to create json object\n");
-		return;
+		goto done;
 	}
 
 	headers = ast_json_pack("{s: s, s: s, s: s}",
@@ -382,15 +353,18 @@ static void stasis_app_event_handler(void *data, const char *app_name, struct as
 			"application_name", app_name);
 	if (!headers) {
 		ast_log(LOG_ERROR, "failed to create AMQP headers\n");
-		return;
+		goto done;
 	}
 
 	if (!(routing_key = new_routing_key(routing_key_prefix, app_name))) {
 		ast_log(LOG_ERROR, "failed to create routing key\n");
-		return;
+		goto done;
 	}
 
 	publish_to_amqp(bus_event, headers, routing_key);
+
+done:
+	ast_json_unref(stasis_event);
 }
 
 
@@ -408,9 +382,9 @@ static void ami_event_handler(void *data, struct stasis_subscription *sub,
 {
 	RAII_VAR(struct ast_json *, bus_event, NULL, ast_json_unref);
 	RAII_VAR(struct ast_json *, headers, NULL, ast_json_unref);
-	RAII_VAR(struct ast_json *, event_data,  NULL, ast_json_unref);
 	RAII_VAR(struct ast_manager_event_blob *, manager_blob, NULL, ao2_cleanup);
 	RAII_VAR(char *, fields, NULL, ast_free);
+	struct ast_json *event_data = NULL;
 	const char *routing_key_prefix = "ami";
 	RAII_VAR(char *, routing_key, NULL, ast_free);
 
@@ -437,12 +411,14 @@ static void ami_event_handler(void *data, struct stasis_subscription *sub,
 
 	if (manager_event_to_json(event_data, manager_blob->manager_event, fields)) {
 		ast_log(LOG_ERROR, "failed to create AMI message json payload for %s\n", manager_blob->extra_fields);
+		ast_json_unref(event_data);
 		return;
 	}
 
 	bus_event = ast_json_pack("{s: s, s: o}", "name", manager_blob->manager_event, "data", event_data);
 	if (!bus_event) {
 		ast_log(LOG_ERROR, "failed to to create json object\n");
+		ast_json_unref(event_data);
 		return;
 	}
 
