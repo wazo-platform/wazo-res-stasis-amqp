@@ -253,6 +253,7 @@ static void stasis_channel_event_handler(void *data, struct stasis_subscription 
 	bus_event = ast_json_pack("{s: s, s: o}", "name", event_name, "data", json);
 	if (!bus_event) {
 		ast_log(LOG_ERROR, "failed to create json object\n");
+		ast_json_unref(json);
 		return;
 	}
 
@@ -417,6 +418,7 @@ static void ami_event_handler(void *data, struct stasis_subscription *sub,
 	bus_event = ast_json_pack("{s: s, s: o}", "name", manager_blob->manager_event, "data", event_data);
 	if (!bus_event) {
 		ast_log(LOG_ERROR, "failed to to create json object\n");
+		ast_json_unref(event_data);
 		return;
 	}
 
