@@ -34,14 +34,14 @@ To build the module you will need the following dependencies
 Clone the amqp client repository:
 
     cd /usr/src/
-    git clone https://github.com/wazo-pbx/wazo-res-amqp
+    git clone https://github.com/wazo-platform/wazo-res-amqp
     make
     make install
 
 Clone stasis amqp modules:
 
     cd /usr/src/
-    git clone https://github.com/wazo-pbx/wazo-res-stasis-amqp
+    git clone https://github.com/wazo-platform/wazo-res-stasis-amqp
     make
     make install
     make samples
