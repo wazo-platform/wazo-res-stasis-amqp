@@ -5,10 +5,13 @@ import ari as ari_client
 import logging
 import os
 import pytest
+import time
+
 from hamcrest import (
     assert_that,
     calling,
     empty,
+    equal_to,
     has_entry,
     has_entries,
     has_item,
@@ -113,6 +116,53 @@ def test_stasis_amqp_events_headers(ari):
         ))
 
     until.assert_(event_received, timeout=5)
+
+
+@pytest.mark.parametrize('ari', ['headers'], indirect=True)
+def test_stasis_amqp_no_duplicate_events(ari):
+    real_app = 'A'
+    ari.amqp.stasisSubscribe(applicationName=real_app)
+
+    bus_client = BusClient.from_connection_fields(
+        port=AssetLauncher.service_port(5672, 'rabbitmq'),
+        exchange_type='headers',
+    )
+
+    assert bus_client.is_up()
+
+    stasis_start_accumulator = bus_client.accumulator(headers={
+        'category': 'stasis',
+        'name': 'StasisStart',
+        'x-match': 'all',
+    })
+    channel_varset_accumulator = bus_client.accumulator(headers={
+        'name': 'ChannelVarset',
+        'x-match': 'all',
+    })
+
+    channel = ari.channels.originate(endpoint='local/3000@default', app=real_app)
+
+    def wait_for_call():
+        for _ in range(100):
+            events = stasis_start_accumulator.accumulate()
+            if events:
+                break
+            time.sleep(1)
+
+    wait_for_call()
+
+    def event_received():
+        events = channel_varset_accumulator.accumulate()
+        n = 0
+        for event in events:
+            if event['data']['variable'] == 'FOOBAR':
+                n += 1
+
+        assert_that(n, equal_to(1))
+
+    channel.setChannelVar(variable='FOOBAR', value='42')
+    until.assert_(event_received, timeout=5)
+
 
 @pytest.mark.parametrize('ari', ['headers'], indirect=True)
 def test_stasis_amqp_ami_events_headers(ari):
@@ -258,7 +308,6 @@ def test_stasis_amqp_channel_events_headers(ari):
 
     def event_received():
         events = accumulator.accumulate(with_headers=True)
-        print(events)
         assert_that(events, has_item(has_entries(
             headers=has_entries(
                 category='stasis',
