@@ -236,6 +236,7 @@ static void stasis_channel_event_handler(void *data, struct stasis_subscription 
 	const char *event_name = NULL;
 	const char *routing_key_prefix = "stasis.channel";
 
+
 	if (stasis_subscription_final_message(sub, message)) {
 		return;
 	}
@@ -249,6 +250,7 @@ static void stasis_channel_event_handler(void *data, struct stasis_subscription 
 		ast_json_unref(json);
 		return;
 	}
+	ast_log(LOG_ERROR, "message topic: %s for event %s\n", stasis_subscription_topic_name(sub), event_name);
 
 	bus_event = ast_json_pack("{s: s, s: o}", "name", event_name, "data", json);
 	if (!bus_event) {
@@ -332,6 +334,8 @@ static void stasis_app_event_handler(void *data, const char *app_name, struct as
 		ast_debug(5, "ignoring stasis event with no type\n");
 		goto done;
 	}
+
+	ast_log(LOG_ERROR, "application name: %s for event %s\n", app_name, event_name);
 
 	if (ast_json_object_set(stasis_event, "application", ast_json_string_create(app_name))) {
 		ast_log(LOG_ERROR, "unable to set application item in json");
