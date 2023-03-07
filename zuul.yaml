@@ -1,12 +1,12 @@
 - job:
     name: wazo-res-stasis-amqp-integration
     description: Run res-stasis-amqp integration tests
-    parent: wazo-tox-integration
+    parent: wazo-tox-integration-py39
     run: zuul.d/run.yaml
 
 - project:
     templates:
-      - debian-packaging-template
+      - debian-packaging-bullseye
     check:
       jobs:
         - wazo-res-stasis-amqp-integration

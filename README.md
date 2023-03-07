@@ -97,7 +97,7 @@ You don't need to anything for the configuration, all channels events is pushed 
 
 Event is push on this routing key `stasis.channel.<channel uniqueid>`
 
-Informations
+Information
 ------------
 
 - If you register an application with the websocket, it's possible to disabled it by the amqp endpoint ARI.  

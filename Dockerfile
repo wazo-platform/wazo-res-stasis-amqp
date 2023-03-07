@@ -1,4 +1,4 @@
-FROM debian:buster
+FROM debian:bullseye
 MAINTAINER Wazo Maintainers <dev@wazo.community>
 
 ENV DEBIAN_FRONTEND noninteractive
