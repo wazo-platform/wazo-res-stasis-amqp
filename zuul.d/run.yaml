@@ -5,7 +5,7 @@
       shell: >
         set -x &&
         mkdir -p .tox &&
-        virtualenv -p python3 .tox/integration &&
+        python3 -m venv .tox/integration &&
         . .tox/integration/bin/activate &&
         pip install -r integration_tests/test-requirements.txt &&
         make -C integration_tests test-setup test
