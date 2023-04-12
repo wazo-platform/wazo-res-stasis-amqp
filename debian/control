@@ -3,7 +3,7 @@ Section: comm
 Priority: optional
 Maintainer: Wazo Maintainers <dev@wazo.community>
 Build-Depends: 
- debhelper (>= 9),
+ debhelper (>= 12),
  asterisk-dev (>= 8:20),
  libssl-dev,
  wazo-res-amqp-dev
