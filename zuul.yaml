@@ -7,9 +7,9 @@
 - project:
     templates:
       - debian-packaging-bullseye
-    check:
+    wazo-check:
       jobs:
         - wazo-res-stasis-amqp-integration
-    gate:
+    wazo-gate:
       jobs:
         - wazo-res-stasis-amqp-integration
