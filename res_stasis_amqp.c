@@ -128,7 +128,6 @@ struct stasis_amqp_global_conf {
 		AST_STRING_FIELD(connection);
 		/*! \brief exchange name */
 		AST_STRING_FIELD(exchange);
-		/*! \brief exchange type */
 	);
 	int publish_ami_events;
 	int publish_channel_events;
