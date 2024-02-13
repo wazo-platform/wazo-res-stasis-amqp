@@ -3,3 +3,4 @@
 ;exchange =                   ; Exchange to publish to; defaults to empty string
 ;publish_ami_events = yes     ; Whether or not ami events should be published
 ;publish_channel_events = yes ; Whether or not channel events should be published
+;exclude_events =             ; Exclude an optional comma-separated list of event name from any source (ami, stasis app, stasis channel); defaults to empty list

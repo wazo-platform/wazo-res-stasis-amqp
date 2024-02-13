@@ -30,6 +30,12 @@
 						<para>Defaults to "yes"</para>
 					</description>
 				</configOption>
+				<configOption name="exclude_events">
+					<synopsis>Exclude an optional comma-separated list of event name from any source (ami, stasis app, stasis channel)</synopsis>
+					<description>
+						<para>Defaults to empty list</para>
+					</description>
+				</configOption>
 			</configObject>
 		</configFile>
 	</configInfo>

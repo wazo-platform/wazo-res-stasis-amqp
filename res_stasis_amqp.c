@@ -1,7 +1,7 @@
 /*
  * Asterisk -- An open source telephony toolkit.
  *
- * Copyright 2013-2022 The Wazo Authors  (see the AUTHORS file)
+ * Copyright 2013-2024 The Wazo Authors  (see the AUTHORS file)
  *
  * David M. Lee, II <dlee@digium.com>
  *
@@ -68,6 +68,12 @@
 						<para>Defaults to "yes"</para>
 					</description>
 				</configOption>
+				<configOption name="exclude_events">
+					<synopsis>Exclude an optional comma-separated list of event name from any source (ami, stasis app, stasis channel)</synopsis>
+					<description>
+						<para>Defaults to empty list</para>
+					</description>
+				</configOption>
 			</configObject>
 		</configFile>
 	</configInfo>
@@ -89,6 +95,7 @@
 #include "asterisk/manager.h"
 #include "asterisk/json.h"
 #include "asterisk/utils.h"
+#include "asterisk/vector.h"
 
 #include "asterisk/amqp.h"
 
@@ -120,6 +127,7 @@ struct app {
 	char *name;
 };
 
+AST_VECTOR(stasis_amqp_exclude_event_vector, const char *);
 
 /*! \brief global config structure */
 struct stasis_amqp_global_conf {
@@ -131,6 +139,7 @@ struct stasis_amqp_global_conf {
 	);
 	int publish_ami_events;
 	int publish_channel_events;
+	struct stasis_amqp_exclude_event_vector exclude_events;
 };
 
 /*! \brief Locking container for safe configuration access. */
@@ -146,10 +155,28 @@ static struct aco_type global_option = {
 
 static struct aco_type *global_options[] = ACO_TYPES(&global_option);
 
+static int exclude_events_handler(const struct aco_option *opt, struct ast_variable *var, void *obj)
+{
+	struct stasis_amqp_global_conf *conf_global = obj;
+	char *events = ast_strdupa(var->value);
+	char *event_name;
+
+	while ((event_name = ast_strip(strsep(&events, ",")))) {
+		if (ast_strlen_zero(event_name)) {
+			continue;
+		}
+		event_name = ast_strdup(event_name);
+		AST_VECTOR_APPEND(&conf_global->exclude_events, event_name);
+	}
+	return 0;
+}
+
 static void conf_global_dtor(void *obj)
 {
 	struct stasis_amqp_global_conf *global = obj;
 	ast_string_field_free_memory(global);
+	AST_VECTOR_FREE(&global->exclude_events);
+
 }
 
 static struct stasis_amqp_global_conf *conf_global_create(void)
@@ -162,6 +189,10 @@ static struct stasis_amqp_global_conf *conf_global_create(void)
 	if (ast_string_field_init(global, 256) != 0) {
 		return NULL;
 	}
+	if (AST_VECTOR_INIT(&global->exclude_events, 0)) {
+		return NULL;
+	}
+
 	aco_set_defaults(&global_option, "global", global);
 	return ao2_bump(global);
 }
@@ -316,10 +347,13 @@ static int manager_event_to_json(struct ast_json *json, const char *event_name, 
 
 static void stasis_app_event_handler(void *data, const char *app_name, struct ast_json *stasis_event)
 {
+	RAII_VAR(struct stasis_amqp_conf *, conf, NULL, ao2_cleanup);
 	RAII_VAR(struct ast_json *, bus_event, NULL, ast_json_unref);
 	RAII_VAR(struct ast_json *, headers, NULL, ast_json_unref);
 	RAII_VAR(char *, routing_key, NULL, ast_free);
 	const char *routing_key_prefix = "stasis.app";
+	const char *ignored_event_name = NULL;
+	size_t i;
 
 	ast_json_ref(stasis_event);  // Bumping the reference to this event to make sure it stays in memory until we're done
 
@@ -330,6 +364,16 @@ static void stasis_app_event_handler(void *data, const char *app_name, struct as
 	if (!event_name) {
 		ast_debug(5, "ignoring stasis event with no type\n");
 		goto done;
+	}
+
+	conf = ao2_global_obj_ref(confs);
+	for (i = 0; i < AST_VECTOR_SIZE(&conf->global->exclude_events); i++) {
+		ignored_event_name = AST_VECTOR_GET(&conf->global->exclude_events, i);
+		ast_debug(5, "DEBUG stasis event '%s'\n", ignored_event_name);
+		if (strcmp(event_name, ignored_event_name) == 0) {
+			ast_debug(5, "ignoring stasis event '%s'\n", event_name);
+			goto done;
+		}
 	}
 
 	if (ast_json_object_set(stasis_event, "application", ast_json_string_create(app_name))) {
@@ -579,6 +623,9 @@ static int load_config(int reload)
 		global_options, "yes", OPT_BOOL_T, 1, FLDSET(struct stasis_amqp_global_conf, publish_ami_events));
 	aco_option_register(&cfg_info, "publish_channel_events", ACO_EXACT,
 		global_options, "yes", OPT_BOOL_T, 1, FLDSET(struct stasis_amqp_global_conf, publish_channel_events));
+	aco_option_register_custom(&cfg_info, "exclude_events", ACO_EXACT,
+		global_options, "", exclude_events_handler, 0);
+
 
 
 	switch (aco_process_config(&cfg_info, reload)) {

@@ -7,12 +7,14 @@ import os
 import ari as ari_client
 import pytest
 from hamcrest import (
+    any_of,
     assert_that,
     calling,
     empty,
     has_entries,
     has_entry,
     has_item,
+    has_items,
     is_not,
     not_,
     only_contains,
@@ -133,6 +135,49 @@ def test_stasis_amqp_events_headers(ari):
         )
 
     until.assert_(event_received, timeout=5)
+
+
+@pytest.mark.parametrize('ari', ['headers'], indirect=True)
+def test_stasis_amqp_exclude_events(ari):
+    app = 'MyApp'
+    ari.amqp.stasisSubscribe(applicationName=app)
+    assert_that(ari.applications.list(), has_item(has_entry('name', app)))
+
+    bus_client = BusClient.from_connection_fields(
+        port=AssetLauncher.service_port(5672, 'rabbitmq'),
+        exchange_name='wazo-headers',
+        exchange_type='headers',
+    )
+    assert bus_client.is_up()
+
+    headers = {
+        'category': 'stasis',
+        'application_name': app,
+        'x-match': 'all',
+    }
+    accumulator = bus_client.accumulator(headers=headers)
+
+    ari.channels.originate(endpoint='local/3000@default', app=app)
+
+    def event_received():
+        events = accumulator.accumulate(with_headers=True)
+        # NOTE: StasisStart is sent after ChannelDialplan and ChannelStateChange
+        assert_that(
+            events,
+            has_items(has_entries(headers=has_entries(name='StasisStart'))),
+        )
+
+    until.assert_(event_received, timeout=5)
+
+    assert_that(
+        accumulator.accumulate(with_headers=True),
+        not_(
+            any_of(
+                has_items(has_entries(headers=has_entries(name='ChannelDialplan'))),
+                has_items(has_entries(headers=has_entries(name='ChannelStateChange'))),
+            ),
+        ),
+    )
 
 
 @pytest.mark.parametrize('ari', ['headers'], indirect=True)
