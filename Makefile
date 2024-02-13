@@ -1,6 +1,6 @@
 #
 # Makefile for Asterisk stasis to amqp resource
-# Copyright 2017-2019 The Wazo Authors  (see the AUTHORS file)
+# Copyright 2017-2024 The Wazo Authors  (see the AUTHORS file)
 #
 # This program is free software, distributed under the terms of
 # the GNU General Public License Version 3. See the COPYING file
@@ -24,7 +24,7 @@ SAMPLENAME = stasis_amqp.conf.sample
 CONFNAME = $(basename $(SAMPLENAME))
 
 TARGET = res_stasis_amqp.so res_ari_amqp.so
-CFLAGS += -I../asterisk-amqp
+CFLAGS += -I../wazo-res-amqp
 CFLAGS += -DHAVE_STDINT_H=1
 CFLAGS += -Wall -Wextra -Wno-unused-parameter -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Winit-self -Wmissing-format-attribute \
           -Wformat=2 -g -fPIC -D_GNU_SOURCE -D'AST_MODULE="res_stasis_amqp"' -D'AST_MODULE_SELF_SYM=__internal_res_stasis_amqp_self'
