@@ -1,7 +1,7 @@
 /*
  * Asterisk -- An open source telephony toolkit.
  *
- * Copyright 2013-2022 The Wazo Authors  (see the AUTHORS file)
+ * Copyright 2013-2024 The Wazo Authors  (see the AUTHORS file)
  *
  * David M. Lee, II <dlee@digium.com>
  *
@@ -320,18 +320,35 @@ static void stasis_app_event_handler(void *data, const char *app_name, struct as
 	RAII_VAR(struct ast_json *, headers, NULL, ast_json_unref);
 	RAII_VAR(char *, routing_key, NULL, ast_free);
 	const char *routing_key_prefix = "stasis.app";
+	const char *var_name = NULL;
 
 	ast_json_ref(stasis_event);  // Bumping the reference to this event to make sure it stays in memory until we're done
 
 	char *event_name = ast_strdupa(ast_json_object_string_get(stasis_event, "type"));
 
-	ast_debug(4, "called stasis amqp handler for application: '%s'\n", app_name);
+	ast_debug(4, "called stasis amqp handler for application: '%s' and event: '%s'\n", app_name, event_name);
 
 	if (!event_name) {
 		ast_debug(5, "ignoring stasis event with no type\n");
 		goto done;
 	}
 
+	if (strcmp(event_name, "ChannelDialplan") == 0) {
+		ast_debug(5, "ignoring stasis event ChannelDialplan\n");
+		goto done;
+	}
+
+	if (strcmp(event_name, "ChannelVarset") == 0) {
+		if (!(var_name = ast_json_object_string_get(stasis_event, "variable"))) {
+			ast_debug(5, "ignoring stasis event ChannelVarSet with no variable\n");
+			goto done;
+		}
+
+		if (strcmp(var_name, "WAZO_CALL_PROGRESS") != 0) {
+			ast_debug(5, "ignoring stasis event ChannelVarSet with variable different than WAZO_CALL_PROGRESS\n");
+			goto done;
+		}
+	}
 	if (ast_json_object_set(stasis_event, "application", ast_json_string_create(app_name))) {
 		ast_log(LOG_ERROR, "unable to set application item in json");
 		goto done;
