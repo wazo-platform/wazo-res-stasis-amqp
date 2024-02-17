@@ -43,9 +43,10 @@ install: all
 	install -m 644 res_stasis_amqp.so $(DESTDIR)$(MODULES_DIR)
 	install -m 644 res_ari_amqp.so $(DESTDIR)$(MODULES_DIR)
 	install -m 644 documentation/* $(DESTDIR)$(DOCUMENTATION_DIR)
-	@echo " +-------- res_stasis_amqp installed --------+"
+	@echo " +------ res_stasis/ari_amqp installed ------+"
 	@echo " +                                           +"
-	@echo " + res_amqp has successfully been installed  +"
+	@echo " + res_stasis_amqp and res_ari_amqp have     +"
+	@echo " + successfully been installed               +"
 	@echo " + If you would like to install the sample   +"
 	@echo " + configuration file run:                   +"
 	@echo " +                                           +"
