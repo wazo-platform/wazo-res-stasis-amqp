@@ -16,7 +16,7 @@ How does it works
  +--- stasis application
  |
  v                     |                                  |
-[client]-------------->|  topic --> (*)--> callback---+   |   
+[client]-------------->|  topic --> (*)--> callback---+   |
                        |                    |    ^    |   |
                        |                    |    |    +-->| ==== event ==> [RabbitMQ Exchange(s)]
                        |                    v    |        |
@@ -64,7 +64,7 @@ How to use
 
 on your asterisk dialplan. For an application named 'bar'
 
-    exten = 6001,1,NoOp() 
+    exten = 6001,1,NoOp()
      same = n,Answer()
      same = n,Stasis(bar) ; this will generate events which will be forwarded to stasis (websocket or AMQP)
      same = n,Hangup()
@@ -100,6 +100,6 @@ Event is push on this routing key `stasis.channel.<channel uniqueid>`
 Information
 ------------
 
-- If you register an application with the websocket, it's possible to disabled it by the amqp endpoint ARI.  
+- If you register an application with the websocket, it's possible to disabled it by the amqp endpoint ARI.
 - If you restart Asterisk you loose the application.
 - If you registering an application on the websocket with the same name of an application already registered with the AMQP events, the callback is on websocket.
