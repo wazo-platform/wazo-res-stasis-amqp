@@ -1,4 +1,4 @@
-# Copyright 2019-2022 The Wazo Authors  (see the AUTHORS file)
+# Copyright 2019-2024 The Wazo Authors  (see the AUTHORS file)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import ari as ari_client
@@ -258,7 +258,6 @@ def test_stasis_amqp_channel_events_headers(ari):
 
     def event_received():
         events = accumulator.accumulate(with_headers=True)
-        print(events)
         assert_that(events, has_item(has_entries(
             headers=has_entries(
                 category='stasis',
