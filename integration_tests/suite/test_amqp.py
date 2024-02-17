@@ -75,6 +75,7 @@ def test_stasis_amqp_events_headers(ari):
 
     bus_client = BusClient.from_connection_fields(
         port=AssetLauncher.service_port(5672, 'rabbitmq'),
+        exchange_name='wazo-headers',
         exchange_type='headers',
     )
 
@@ -135,6 +136,7 @@ def test_stasis_amqp_events_headers(ari):
 def test_stasis_amqp_ami_events_headers(ari):
     bus_client = BusClient.from_connection_fields(
         port=AssetLauncher.service_port(5672, 'rabbitmq'),
+        exchange_name='wazo-headers',
         exchange_type='headers',
     )
 
@@ -175,6 +177,8 @@ def test_stasis_amqp_ami_events_headers(ari):
 def test_stasis_amqp_ami_events_topic(ari):
     bus_client = BusClient.from_connection_fields(
         port=AssetLauncher.service_port(5672, 'rabbitmq'),
+        exchange_name='wazo-topic',
+        exchange_type='topic',
     )
 
     accumulator = bus_client.accumulator('ami.devicestatechange')
@@ -207,6 +211,7 @@ def test_stasis_amqp_ami_events_disabled(ari):
 
     bus_client = BusClient.from_connection_fields(
         port=AssetLauncher.service_port(5672, 'rabbitmq'),
+        exchange_name='wazo-headers',
         exchange_type='headers',
     )
 
@@ -250,6 +255,7 @@ def test_stasis_amqp_channel_events_disabled(ari):
 
     bus_client = BusClient.from_connection_fields(
         port=AssetLauncher.service_port(5672, 'rabbitmq'),
+        exchange_name='wazo-headers',
         exchange_type='headers',
     )
 
@@ -291,6 +297,7 @@ def test_stasis_amqp_channel_events_disabled(ari):
 def test_stasis_amqp_channel_events_headers(ari):
     bus_client = BusClient.from_connection_fields(
         port=AssetLauncher.service_port(5672, 'rabbitmq'),
+        exchange_name='wazo-headers',
         exchange_type='headers',
     )
 
@@ -334,6 +341,8 @@ def test_stasis_amqp_channel_events_headers(ari):
 def test_stasis_amqp_channel_events_topic(ari):
     bus_client = BusClient.from_connection_fields(
         port=AssetLauncher.service_port(5672, 'rabbitmq'),
+        exchange_name='wazo-topic',
+        exchange_type='topic',
     )
 
     accumulator = bus_client.accumulator('stasis.channel.dial')
@@ -372,6 +381,8 @@ def test_stasis_amqp_events_topic(ari):
 
     bus_client = BusClient.from_connection_fields(
         port=AssetLauncher.service_port(5672, 'rabbitmq'),
+        exchange_name='wazo-topic',
+        exchange_type='topic',
     )
 
     assert bus_client.is_up()
@@ -423,6 +434,7 @@ def test_stasis_amqp_events_bad_routing(ari):
 
     bus_client = BusClient.from_connection_fields(
         port=AssetLauncher.service_port(5672, 'rabbitmq'),
+        exchange_name='wazo-headers',
         exchange_type='headers',
     )
 
