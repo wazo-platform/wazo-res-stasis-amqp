@@ -247,6 +247,32 @@ static int setup_amqp(void)
 	return 0;
 }
 
+static int is_event_excluded(const char *event_name)
+{
+	RAII_VAR(struct stasis_amqp_conf *, conf, NULL, ao2_cleanup);
+	const char *ignored_event_name = NULL;
+	size_t i;
+	size_t vector_size;
+
+	conf = ao2_global_obj_ref(confs);
+
+	vector_size = AST_VECTOR_SIZE(&conf->global->exclude_events);
+	if(vector_size == 0) {
+		return 0;
+	}
+
+	ast_debug(5, "processing filter on event '%s'\n", event_name);
+
+	for (i = 0; i < vector_size; i++) {
+		ignored_event_name = AST_VECTOR_GET(&conf->global->exclude_events, i);
+		if (strcmp(event_name, ignored_event_name) == 0) {
+			ast_debug(5, "ignoring event '%s'\n", event_name);
+			return 1;
+		}
+	}
+	return 0;
+}
+
 /*!
  * \brief Subscription callback for all channel messages.
  * \param data Data pointer given when creating the subscription.
@@ -277,6 +303,10 @@ static void stasis_channel_event_handler(void *data, struct stasis_subscription 
 	if (!(event_name = ast_json_object_string_get(json, "type"))) {
 		ast_debug(5, "ignoring stasis event with no type\n");
 		ast_json_unref(json);
+		return;
+	}
+
+	if (is_event_excluded(event_name)) {
 		return;
 	}
 
@@ -347,13 +377,10 @@ static int manager_event_to_json(struct ast_json *json, const char *event_name, 
 
 static void stasis_app_event_handler(void *data, const char *app_name, struct ast_json *stasis_event)
 {
-	RAII_VAR(struct stasis_amqp_conf *, conf, NULL, ao2_cleanup);
 	RAII_VAR(struct ast_json *, bus_event, NULL, ast_json_unref);
 	RAII_VAR(struct ast_json *, headers, NULL, ast_json_unref);
 	RAII_VAR(char *, routing_key, NULL, ast_free);
 	const char *routing_key_prefix = "stasis.app";
-	const char *ignored_event_name = NULL;
-	size_t i;
 
 	ast_json_ref(stasis_event);  // Bumping the reference to this event to make sure it stays in memory until we're done
 
@@ -366,14 +393,8 @@ static void stasis_app_event_handler(void *data, const char *app_name, struct as
 		goto done;
 	}
 
-	conf = ao2_global_obj_ref(confs);
-	for (i = 0; i < AST_VECTOR_SIZE(&conf->global->exclude_events); i++) {
-		ignored_event_name = AST_VECTOR_GET(&conf->global->exclude_events, i);
-		ast_debug(5, "DEBUG stasis event '%s'\n", ignored_event_name);
-		if (strcmp(event_name, ignored_event_name) == 0) {
-			ast_debug(5, "ignoring stasis event '%s'\n", event_name);
-			goto done;
-		}
+	if (is_event_excluded(event_name)) {
+		goto done;
 	}
 
 	if (ast_json_object_set(stasis_event, "application", ast_json_string_create(app_name))) {
@@ -440,6 +461,10 @@ static void ami_event_handler(void *data, struct stasis_subscription *sub,
 		return;
 	}
 
+	if (is_event_excluded(manager_blob->manager_event)) {
+		return;
+	}
+
 	if (manager_blob->extra_fields) {
 		if (!(fields = ast_strdup(manager_blob->extra_fields))) {
 			ast_log(LOG_ERROR, "failed to copy AMI event fields\n");
@@ -451,6 +476,7 @@ static void ami_event_handler(void *data, struct stasis_subscription *sub,
 		ast_log(LOG_ERROR, "failed to create json object\n");
 		return;
 	}
+
 
 	if (manager_event_to_json(event_data, manager_blob->manager_event, fields)) {
 		ast_log(LOG_ERROR, "failed to create AMI message json payload for %s\n", manager_blob->extra_fields);

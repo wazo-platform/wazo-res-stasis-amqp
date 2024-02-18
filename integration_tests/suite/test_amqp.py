@@ -137,8 +137,8 @@ def test_stasis_amqp_events_headers(ari):
     until.assert_(event_received, timeout=5)
 
 
-@pytest.mark.parametrize('ari', ['headers'], indirect=True)
-def test_stasis_amqp_exclude_events(ari):
+@pytest.mark.parametrize('ari', ['filter-events'], indirect=True)
+def test_stasis_amqp_app_exclude_events(ari):
     app = 'MyApp'
     ari.amqp.stasisSubscribe(applicationName=app)
     assert_that(ari.applications.list(), has_item(has_entry('name', app)))
@@ -297,6 +297,30 @@ def test_stasis_amqp_ami_events_disabled(ari):
     assert_that(events, empty())
 
 
+@pytest.mark.parametrize('ari', ['filter-events'], indirect=True)
+def test_stasis_amqp_ami_exclude_events(ari):
+    bus_client = BusClient.from_connection_fields(
+        port=AssetLauncher.service_port(5672, 'rabbitmq'),
+        exchange_name='wazo-headers',
+        exchange_type='headers',
+    )
+
+    ami_accumulator = bus_client.accumulator(
+        headers={
+            'category': 'ami',
+            'name': 'DeviceStateChange',
+            'x-match': 'all',
+        }
+    )
+
+    ari.channels.originate(
+        endpoint='local/3000@default', extension='1000', context='default'
+    )
+
+    events = ami_accumulator.accumulate(with_headers=True)
+    assert_that(events, empty())
+
+
 @pytest.mark.parametrize('ari', ['no-publish'], indirect=True)
 def test_stasis_amqp_channel_events_disabled(ari):
     ari.amqp.stasisSubscribe(applicationName='myapp')
@@ -415,6 +439,41 @@ def test_stasis_amqp_channel_events_topic(ari):
         )
 
     until.assert_(event_received, timeout=5)
+
+
+@pytest.mark.parametrize('ari', ['filter-events'], indirect=True)
+def test_stasis_amqp_channel_exclude_events(ari):
+    bus_client = BusClient.from_connection_fields(
+        port=AssetLauncher.service_port(5672, 'rabbitmq'),
+        exchange_name='wazo-headers',
+        exchange_type='headers',
+    )
+
+    accumulator = bus_client.accumulator(
+        headers={
+            'category': 'stasis',
+            'x-match': 'all',
+        }
+    )
+
+    ari.channels.originate(
+        endpoint='local/3000@default', extension='1000', context='default'
+    )
+
+    def event_received():
+        events = accumulator.accumulate(with_headers=True)
+        # NOTE: ChannelHangupRequest is sent after Dial
+        assert_that(
+            events,
+            has_items(has_entries(headers=has_entries(name='ChannelHangupRequest'))),
+        )
+
+    until.assert_(event_received, timeout=5)
+
+    assert_that(
+        accumulator.accumulate(with_headers=True),
+        not_(has_items(has_entries(headers=has_entries(name='Dial')))),
+    )
 
 
 @pytest.mark.parametrize('ari', ['topic'], indirect=True)
