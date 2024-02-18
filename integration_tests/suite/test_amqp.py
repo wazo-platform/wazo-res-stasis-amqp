@@ -58,7 +58,10 @@ def ari(request):
         ['asterisk', '-rx', 'module load res_ari_amqp.so'],
         service_name='ari_amqp',
     )
-
+    AssetLauncher.docker_exec(
+        ['asterisk', '-rx', 'core set debug 5'],
+        service_name='ari_amqp',
+    )
     yield client
     AssetLauncher.kill_containers()
 
