@@ -10,6 +10,7 @@ from hamcrest import (
     any_of,
     assert_that,
     calling,
+    contains_inanyorder,
     empty,
     has_entries,
     has_entry,
@@ -178,6 +179,58 @@ def test_stasis_amqp_app_exclude_events(ari):
             ),
         ),
     )
+
+
+@pytest.mark.parametrize('ari', ['filter-events'], indirect=True)
+def test_stasis_amqp_app_include_channelvarset_events(ari):
+    app = 'MyApp'
+    ari.amqp.stasisSubscribe(applicationName=app)
+    assert_that(ari.applications.list(), has_item(has_entry('name', app)))
+
+    bus_client = BusClient.from_connection_fields(
+        port=AssetLauncher.service_port(5672, 'rabbitmq'),
+        exchange_name='wazo-headers',
+        exchange_type='headers',
+    )
+    assert bus_client.is_up()
+
+    headers = {
+        'category': 'stasis',
+        'application_name': app,
+        'name': 'ChannelVarset',
+        'x-match': 'all',
+    }
+    accumulator = bus_client.accumulator(headers=headers)
+
+    ari.channels.originate(
+        endpoint='local/3000@default',
+        app=app,
+        variables={
+            'variables': {
+                'EXCLUDE': 'test',
+                'INCLUDE1': 'test',
+                'INCLUDE2': 'test',
+            },
+        },
+    )
+
+    def event_received():
+        events = accumulator.accumulate(with_headers=True)
+        assert_that(
+            events,
+            contains_inanyorder(
+                has_entries(
+                    headers=has_entries(name='ChannelVarset'),
+                    message=has_entries(data=has_entries(variable='INCLUDE1')),
+                ),
+                has_entries(
+                    headers=has_entries(name='ChannelVarset'),
+                    message=has_entries(data=has_entries(variable='INCLUDE2')),
+                ),
+            ),
+        )
+
+    until.assert_(event_received, timeout=5)
 
 
 @pytest.mark.parametrize('ari', ['headers'], indirect=True)
@@ -474,6 +527,66 @@ def test_stasis_amqp_channel_exclude_events(ari):
         accumulator.accumulate(with_headers=True),
         not_(has_items(has_entries(headers=has_entries(name='Dial')))),
     )
+
+
+@pytest.mark.parametrize('ari', ['filter-events'], indirect=True)
+def test_stasis_amqp_channel_include_channelvarset_events(ari):
+    bus_client = BusClient.from_connection_fields(
+        port=AssetLauncher.service_port(5672, 'rabbitmq'),
+        exchange_name='wazo-headers',
+        exchange_type='headers',
+    )
+
+    headers = {
+        'category': 'stasis',
+        'name': 'ChannelVarset',
+        'x-match': 'all',
+    }
+    accumulator = bus_client.accumulator(headers=headers)
+
+    ari.channels.originate(
+        endpoint='local/3000@default',
+        extension='1000',
+        context='default',
+        variables={
+            'variables': {
+                'EXCLUDE': 'test',
+                'INCLUDE1': 'test',
+                'INCLUDE2': 'test',
+            },
+        },
+    )
+
+    def event_received():
+        events = accumulator.accumulate(with_headers=True)
+        # NOTE(fblackburn: events are published twice (one for each channel)
+        assert_that(
+            events,
+            has_items(
+                has_entries(
+                    headers=has_entries(name='ChannelVarset'),
+                    message=has_entries(data=has_entries(variable='INCLUDE1')),
+                ),
+                has_entries(
+                    headers=has_entries(name='ChannelVarset'),
+                    message=has_entries(data=has_entries(variable='INCLUDE2')),
+                ),
+            ),
+        )
+
+        assert_that(
+            events,
+            not_(
+                has_items(
+                    has_entries(
+                        headers=has_entries(name='ChannelVarset'),
+                        message=has_entries(data=has_entries(variable='EXCLUDE')),
+                    ),
+                ),
+            ),
+        )
+
+    until.assert_(event_received, timeout=5)
 
 
 @pytest.mark.parametrize('ari', ['topic'], indirect=True)

@@ -74,6 +74,12 @@
 						<para>Defaults to empty list</para>
 					</description>
 				</configOption>
+				<configOption name="include_channelvarset_events">
+					<synopsis>Include an optional comma-separated list of ChannelVarset variable. If empty, all ChannelVarset events are included</synopsis>
+					<description>
+						<para>Defaults to empty list</para>
+					</description>
+				</configOption>
 			</configObject>
 		</configFile>
 	</configInfo>
@@ -128,6 +134,7 @@ struct app {
 };
 
 AST_VECTOR(stasis_amqp_exclude_event_vector, const char *);
+AST_VECTOR(stasis_amqp_include_channelvarset_event_vector, const char *);
 
 /*! \brief global config structure */
 struct stasis_amqp_global_conf {
@@ -140,6 +147,7 @@ struct stasis_amqp_global_conf {
 	int publish_ami_events;
 	int publish_channel_events;
 	struct stasis_amqp_exclude_event_vector exclude_events;
+	struct stasis_amqp_include_channelvarset_event_vector include_channelvarset_events;
 };
 
 /*! \brief Locking container for safe configuration access. */
@@ -171,11 +179,28 @@ static int exclude_events_handler(const struct aco_option *opt, struct ast_varia
 	return 0;
 }
 
+static int include_channelvarset_events_handler(const struct aco_option *opt, struct ast_variable *var, void *obj)
+{
+	struct stasis_amqp_global_conf *conf_global = obj;
+	char *var_names = ast_strdupa(var->value);
+	char *var_name;
+
+	while ((var_name = ast_strip(strsep(&var_names, ",")))) {
+		if (ast_strlen_zero(var_name)) {
+			continue;
+		}
+		var_name = ast_strdup(var_name);
+		AST_VECTOR_APPEND(&conf_global->include_channelvarset_events, var_name);
+	}
+	return 0;
+}
+
 static void conf_global_dtor(void *obj)
 {
 	struct stasis_amqp_global_conf *global = obj;
 	ast_string_field_free_memory(global);
 	AST_VECTOR_FREE(&global->exclude_events);
+	AST_VECTOR_FREE(&global->include_channelvarset_events);
 
 }
 
@@ -190,6 +215,9 @@ static struct stasis_amqp_global_conf *conf_global_create(void)
 		return NULL;
 	}
 	if (AST_VECTOR_INIT(&global->exclude_events, 0)) {
+		return NULL;
+	}
+	if (AST_VECTOR_INIT(&global->include_channelvarset_events, 0)) {
 		return NULL;
 	}
 
@@ -273,6 +301,39 @@ static int is_event_excluded(const char *event_name)
 	return 0;
 }
 
+static int is_channelvarset_included(const char *var_name)
+{
+	RAII_VAR(struct stasis_amqp_conf *, conf, NULL, ao2_cleanup);
+	const char *included_var_name = NULL;
+	size_t i;
+	size_t vector_size;
+
+	conf = ao2_global_obj_ref(confs);
+
+	vector_size = AST_VECTOR_SIZE(&conf->global->include_channelvarset_events);
+	if(vector_size == 0) {
+		return 1;
+	}
+
+	ast_debug(5, "processing ChannelVarset filter on variable '%s'\n", var_name);
+
+	if(!var_name) {
+		ast_debug(5, "ignoring ChannelVarset with no variable\n");
+		return 1;
+	}
+
+	for (i = 0; i < vector_size; i++) {
+		included_var_name = AST_VECTOR_GET(&conf->global->include_channelvarset_events, i);
+		if (strcmp(var_name, included_var_name) == 0) {
+			ast_debug(5, "including ChannelVarset with variable '%s'\n", var_name);
+			return 1;
+		}
+	}
+
+	ast_debug(5, "excluding ChannelVarset with variable '%s'\n", var_name);
+	return 0;
+}
+
 /*!
  * \brief Subscription callback for all channel messages.
  * \param data Data pointer given when creating the subscription.
@@ -291,6 +352,7 @@ static void stasis_channel_event_handler(void *data, struct stasis_subscription 
 	struct ast_json *json = NULL;
 	const char *event_name = NULL;
 	const char *routing_key_prefix = "stasis.channel";
+	const char *var_name = NULL;
 
 	if (stasis_subscription_final_message(sub, message)) {
 		return;
@@ -308,6 +370,13 @@ static void stasis_channel_event_handler(void *data, struct stasis_subscription 
 
 	if (is_event_excluded(event_name)) {
 		return;
+	}
+
+	if (strcmp(event_name, "ChannelVarset") == 0) {
+		var_name = ast_strdupa(ast_json_object_string_get(json, "variable"));
+		if (!is_channelvarset_included(var_name)) {
+			return;
+		}
 	}
 
 	bus_event = ast_json_pack("{s: s, s: o}", "name", event_name, "data", json);
@@ -381,6 +450,7 @@ static void stasis_app_event_handler(void *data, const char *app_name, struct as
 	RAII_VAR(struct ast_json *, headers, NULL, ast_json_unref);
 	RAII_VAR(char *, routing_key, NULL, ast_free);
 	const char *routing_key_prefix = "stasis.app";
+	const char *var_name = NULL;
 
 	ast_json_ref(stasis_event);  // Bumping the reference to this event to make sure it stays in memory until we're done
 
@@ -395,6 +465,13 @@ static void stasis_app_event_handler(void *data, const char *app_name, struct as
 
 	if (is_event_excluded(event_name)) {
 		goto done;
+	}
+
+	if (strcmp(event_name, "ChannelVarset") == 0) {
+		var_name = ast_strdup(ast_json_object_string_get(stasis_event, "variable"));
+		if (!is_channelvarset_included(var_name)) {
+			goto done;
+		}
 	}
 
 	if (ast_json_object_set(stasis_event, "application", ast_json_string_create(app_name))) {
@@ -476,7 +553,6 @@ static void ami_event_handler(void *data, struct stasis_subscription *sub,
 		ast_log(LOG_ERROR, "failed to create json object\n");
 		return;
 	}
-
 
 	if (manager_event_to_json(event_data, manager_blob->manager_event, fields)) {
 		ast_log(LOG_ERROR, "failed to create AMI message json payload for %s\n", manager_blob->extra_fields);
@@ -651,6 +727,8 @@ static int load_config(int reload)
 		global_options, "yes", OPT_BOOL_T, 1, FLDSET(struct stasis_amqp_global_conf, publish_channel_events));
 	aco_option_register_custom(&cfg_info, "exclude_events", ACO_EXACT,
 		global_options, "", exclude_events_handler, 0);
+	aco_option_register_custom(&cfg_info, "include_channelvarset_events", ACO_EXACT,
+		global_options, "", include_channelvarset_events_handler, 0);
 
 
 

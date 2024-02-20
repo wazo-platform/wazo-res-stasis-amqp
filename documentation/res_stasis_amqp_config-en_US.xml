@@ -36,6 +36,12 @@
 						<para>Defaults to empty list</para>
 					</description>
 				</configOption>
+				<configOption name="include_channelvarset_events">
+					<synopsis>Include an optional comma-separated list of ChannelVarset variable. If empty, all ChannelVarset events are included</synopsis>
+					<description>
+						<para>Defaults to empty list</para>
+					</description>
+				</configOption>
 			</configObject>
 		</configFile>
 	</configInfo>
