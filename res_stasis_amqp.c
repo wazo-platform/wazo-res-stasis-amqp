@@ -368,6 +368,8 @@ static void stasis_channel_event_handler(void *data, struct stasis_subscription 
 		return;
 	}
 
+	ast_debug(4, "called stasis channel handler for event: '%s'\n", event_name);
+
 	if (is_event_excluded(event_name)) {
 		return;
 	}
@@ -456,12 +458,12 @@ static void stasis_app_event_handler(void *data, const char *app_name, struct as
 
 	char *event_name = ast_strdupa(ast_json_object_string_get(stasis_event, "type"));
 
-	ast_debug(4, "called stasis amqp handler for application: '%s'\n", app_name);
-
 	if (!event_name) {
 		ast_debug(5, "ignoring stasis event with no type\n");
 		goto done;
 	}
+
+	ast_debug(4, "called stasis app handler for application: '%s' and event: '%s'\n", app_name, event_name);
 
 	if (is_event_excluded(event_name)) {
 		goto done;
@@ -537,6 +539,8 @@ static void ami_event_handler(void *data, struct stasis_subscription *sub,
 		/* message has no AMI representation */
 		return;
 	}
+
+	ast_debug(4, "called ami handler for event: '%s'\n", manager_blob->manager_event);
 
 	if (is_event_excluded(manager_blob->manager_event)) {
 		return;
