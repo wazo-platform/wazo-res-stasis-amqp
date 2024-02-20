@@ -101,7 +101,7 @@
 #include "asterisk/manager.h"
 #include "asterisk/json.h"
 #include "asterisk/utils.h"
-#include "asterisk/vector.h"
+#include "asterisk/hashtab.h"
 
 #include "asterisk/amqp.h"
 
@@ -133,9 +133,6 @@ struct app {
 	char *name;
 };
 
-AST_VECTOR(stasis_amqp_exclude_event_vector, const char *);
-AST_VECTOR(stasis_amqp_include_channelvarset_event_vector, const char *);
-
 /*! \brief global config structure */
 struct stasis_amqp_global_conf {
 	AST_DECLARE_STRING_FIELDS(
@@ -146,8 +143,8 @@ struct stasis_amqp_global_conf {
 	);
 	int publish_ami_events;
 	int publish_channel_events;
-	struct stasis_amqp_exclude_event_vector exclude_events;
-	struct stasis_amqp_include_channelvarset_event_vector include_channelvarset_events;
+	struct ast_hashtab *exclude_events;
+	struct ast_hashtab *include_channelvarset_events;
 };
 
 /*! \brief Locking container for safe configuration access. */
@@ -174,7 +171,7 @@ static int exclude_events_handler(const struct aco_option *opt, struct ast_varia
 			continue;
 		}
 		event_name = ast_strdup(event_name);
-		AST_VECTOR_APPEND(&conf_global->exclude_events, event_name);
+		ast_hashtab_insert_safe(conf_global->exclude_events, event_name);
 	}
 	return 0;
 }
@@ -190,7 +187,7 @@ static int include_channelvarset_events_handler(const struct aco_option *opt, st
 			continue;
 		}
 		var_name = ast_strdup(var_name);
-		AST_VECTOR_APPEND(&conf_global->include_channelvarset_events, var_name);
+		ast_hashtab_insert_safe(conf_global->include_channelvarset_events, var_name);
 	}
 	return 0;
 }
@@ -199,8 +196,12 @@ static void conf_global_dtor(void *obj)
 {
 	struct stasis_amqp_global_conf *global = obj;
 	ast_string_field_free_memory(global);
-	AST_VECTOR_FREE(&global->exclude_events);
-	AST_VECTOR_FREE(&global->include_channelvarset_events);
+	if (global->exclude_events) {
+		ast_hashtab_destroy(global->exclude_events, 0);
+	}
+	if (global->include_channelvarset_events) {
+		ast_hashtab_destroy(global->include_channelvarset_events, 0);
+	}
 
 }
 
@@ -214,12 +215,22 @@ static struct stasis_amqp_global_conf *conf_global_create(void)
 	if (ast_string_field_init(global, 256) != 0) {
 		return NULL;
 	}
-	if (AST_VECTOR_INIT(&global->exclude_events, 0)) {
-		return NULL;
-	}
-	if (AST_VECTOR_INIT(&global->include_channelvarset_events, 0)) {
-		return NULL;
-	}
+	global->exclude_events = ast_hashtab_create(
+		0,
+		ast_hashtab_compare_strings,
+		ast_hashtab_resize_tight,
+		ast_hashtab_newsize_tight,
+		ast_hashtab_hash_string,
+		0
+	);
+	global->include_channelvarset_events = ast_hashtab_create(
+		0,
+		ast_hashtab_compare_strings,
+		ast_hashtab_resize_tight,
+		ast_hashtab_newsize_tight,
+		ast_hashtab_hash_string,
+		0
+	);
 
 	aco_set_defaults(&global_option, "global", global);
 	return ao2_bump(global);
@@ -278,25 +289,20 @@ static int setup_amqp(void)
 static int is_event_excluded(const char *event_name)
 {
 	RAII_VAR(struct stasis_amqp_conf *, conf, NULL, ao2_cleanup);
-	const char *ignored_event_name = NULL;
-	size_t i;
-	size_t vector_size;
+	const char *ignored = NULL;
 
 	conf = ao2_global_obj_ref(confs);
 
-	vector_size = AST_VECTOR_SIZE(&conf->global->exclude_events);
-	if(vector_size == 0) {
+	if(ast_hashtab_size(conf->global->exclude_events) == 0) {
 		return 0;
 	}
 
-	ast_debug(5, "processing filter on event '%s'\n", event_name);
+	ast_debug(5, "filter on event '%s'\n", event_name);
 
-	for (i = 0; i < vector_size; i++) {
-		ignored_event_name = AST_VECTOR_GET(&conf->global->exclude_events, i);
-		if (strcmp(event_name, ignored_event_name) == 0) {
-			ast_debug(5, "ignoring event '%s'\n", event_name);
-			return 1;
-		}
+	ignored = ast_hashtab_lookup(conf->global->exclude_events, event_name);
+	if (ignored) {
+		ast_debug(5, "ignoring event '%s'\n", event_name);
+		return 1;
 	}
 	return 0;
 }
@@ -304,14 +310,11 @@ static int is_event_excluded(const char *event_name)
 static int is_channelvarset_included(const char *var_name)
 {
 	RAII_VAR(struct stasis_amqp_conf *, conf, NULL, ao2_cleanup);
-	const char *included_var_name = NULL;
-	size_t i;
-	size_t vector_size;
+	const char *included = NULL;
 
 	conf = ao2_global_obj_ref(confs);
 
-	vector_size = AST_VECTOR_SIZE(&conf->global->include_channelvarset_events);
-	if(vector_size == 0) {
+	if(ast_hashtab_size(conf->global->include_channelvarset_events) == 0) {
 		return 1;
 	}
 
@@ -319,18 +322,16 @@ static int is_channelvarset_included(const char *var_name)
 
 	if(!var_name) {
 		ast_debug(5, "ignoring ChannelVarset with no variable\n");
+		return 0;
+	}
+
+	included = ast_hashtab_lookup(conf->global->include_channelvarset_events, var_name);
+	if (included) {
+		ast_debug(5, "including ChannelVarset with variable '%s'\n", var_name);
 		return 1;
 	}
 
-	for (i = 0; i < vector_size; i++) {
-		included_var_name = AST_VECTOR_GET(&conf->global->include_channelvarset_events, i);
-		if (strcmp(var_name, included_var_name) == 0) {
-			ast_debug(5, "including ChannelVarset with variable '%s'\n", var_name);
-			return 1;
-		}
-	}
-
-	ast_debug(5, "excluding ChannelVarset with variable '%s'\n", var_name);
+	ast_debug(5, "ignoring ChannelVarset with variable '%s'\n", var_name);
 	return 0;
 }
 
