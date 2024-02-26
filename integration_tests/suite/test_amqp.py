@@ -6,6 +6,7 @@ import os
 
 import ari as ari_client
 import pytest
+import requests
 from hamcrest import (
     any_of,
     assert_that,
@@ -701,3 +702,20 @@ def test_app_unsubscribe(ari):
 
     applications = ari.applications.list()
     assert_that(applications, not_(has_item(has_entries(name=app_name))))
+
+
+@pytest.mark.parametrize('ari', ['headers'], indirect=True)
+def test_object_destructor_with_unload_load(ari):
+    AssetLauncher.docker_exec(
+        ['asterisk', '-rx', 'module unload res_stasis_amqp.so'],
+        service_name='ari_amqp',
+    )
+    AssetLauncher.docker_exec(
+        ['asterisk', '-rx', 'module load res_stasis_amqp.so'],
+        service_name='ari_amqp',
+    )
+
+    assert_that(
+        calling(requests.get).with_args(ari.base_url),
+        not_(raises(requests.RequestException)),
+    )
