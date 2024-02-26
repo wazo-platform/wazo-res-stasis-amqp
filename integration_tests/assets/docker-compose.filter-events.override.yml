@@ -9,4 +9,4 @@ services:
 
   ari_amqp:
     volumes:
-      - "./etc/asterisk/stasis_amqp.topic.conf:/etc/asterisk/stasis_amqp.conf"
+      - "./etc/asterisk/stasis_amqp.filter-events.conf:/etc/asterisk/stasis_amqp.conf"

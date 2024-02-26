@@ -1,7 +1,7 @@
 /*
  * Asterisk -- An open source telephony toolkit.
  *
- * Copyright 2013-2022 The Wazo Authors  (see the AUTHORS file)
+ * Copyright 2013-2024 The Wazo Authors  (see the AUTHORS file)
  *
  * David M. Lee, II <dlee@digium.com>
  *
@@ -68,6 +68,18 @@
 						<para>Defaults to "yes"</para>
 					</description>
 				</configOption>
+				<configOption name="exclude_events">
+					<synopsis>Exclude an optional comma-separated list of event name from any source (ami, stasis app, stasis channel)</synopsis>
+					<description>
+						<para>Defaults to empty list</para>
+					</description>
+				</configOption>
+				<configOption name="include_channelvarset_events">
+					<synopsis>Include an optional comma-separated list of ChannelVarset variable. If empty, all ChannelVarset events are included</synopsis>
+					<description>
+						<para>Defaults to empty list</para>
+					</description>
+				</configOption>
 			</configObject>
 		</configFile>
 	</configInfo>
@@ -89,6 +101,7 @@
 #include "asterisk/manager.h"
 #include "asterisk/json.h"
 #include "asterisk/utils.h"
+#include "asterisk/hashtab.h"
 
 #include "asterisk/amqp.h"
 
@@ -120,7 +133,6 @@ struct app {
 	char *name;
 };
 
-
 /*! \brief global config structure */
 struct stasis_amqp_global_conf {
 	AST_DECLARE_STRING_FIELDS(
@@ -128,10 +140,11 @@ struct stasis_amqp_global_conf {
 		AST_STRING_FIELD(connection);
 		/*! \brief exchange name */
 		AST_STRING_FIELD(exchange);
-		/*! \brief exchange type */
 	);
 	int publish_ami_events;
 	int publish_channel_events;
+	struct ast_hashtab *exclude_events;
+	struct ast_hashtab *include_channelvarset_events;
 };
 
 /*! \brief Locking container for safe configuration access. */
@@ -147,10 +160,49 @@ static struct aco_type global_option = {
 
 static struct aco_type *global_options[] = ACO_TYPES(&global_option);
 
+static int exclude_events_handler(const struct aco_option *opt, struct ast_variable *var, void *obj)
+{
+	struct stasis_amqp_global_conf *conf_global = obj;
+	char *events = ast_strdupa(var->value);
+	char *event_name;
+
+	while ((event_name = ast_strip(strsep(&events, ",")))) {
+		if (ast_strlen_zero(event_name)) {
+			continue;
+		}
+		event_name = ast_strdup(event_name);
+		ast_hashtab_insert_safe(conf_global->exclude_events, event_name);
+	}
+	return 0;
+}
+
+static int include_channelvarset_events_handler(const struct aco_option *opt, struct ast_variable *var, void *obj)
+{
+	struct stasis_amqp_global_conf *conf_global = obj;
+	char *var_names = ast_strdupa(var->value);
+	char *var_name;
+
+	while ((var_name = ast_strip(strsep(&var_names, ",")))) {
+		if (ast_strlen_zero(var_name)) {
+			continue;
+		}
+		var_name = ast_strdup(var_name);
+		ast_hashtab_insert_safe(conf_global->include_channelvarset_events, var_name);
+	}
+	return 0;
+}
+
 static void conf_global_dtor(void *obj)
 {
 	struct stasis_amqp_global_conf *global = obj;
 	ast_string_field_free_memory(global);
+	if (global->exclude_events) {
+		ast_hashtab_destroy(global->exclude_events, 0);
+	}
+	if (global->include_channelvarset_events) {
+		ast_hashtab_destroy(global->include_channelvarset_events, 0);
+	}
+
 }
 
 static struct stasis_amqp_global_conf *conf_global_create(void)
@@ -163,6 +215,23 @@ static struct stasis_amqp_global_conf *conf_global_create(void)
 	if (ast_string_field_init(global, 256) != 0) {
 		return NULL;
 	}
+	global->exclude_events = ast_hashtab_create(
+		0,
+		ast_hashtab_compare_strings,
+		ast_hashtab_resize_tight,
+		ast_hashtab_newsize_tight,
+		ast_hashtab_hash_string,
+		0
+	);
+	global->include_channelvarset_events = ast_hashtab_create(
+		0,
+		ast_hashtab_compare_strings,
+		ast_hashtab_resize_tight,
+		ast_hashtab_newsize_tight,
+		ast_hashtab_hash_string,
+		0
+	);
+
 	aco_set_defaults(&global_option, "global", global);
 	return ao2_bump(global);
 }
@@ -217,6 +286,55 @@ static int setup_amqp(void)
 	return 0;
 }
 
+static int is_event_excluded(const char *event_name)
+{
+	RAII_VAR(struct stasis_amqp_conf *, conf, NULL, ao2_cleanup);
+	const char *ignored = NULL;
+
+	conf = ao2_global_obj_ref(confs);
+
+	if(ast_hashtab_size(conf->global->exclude_events) == 0) {
+		return 0;
+	}
+
+	ast_debug(5, "filter on event '%s'\n", event_name);
+
+	ignored = ast_hashtab_lookup(conf->global->exclude_events, event_name);
+	if (ignored) {
+		ast_debug(5, "ignoring event '%s'\n", event_name);
+		return 1;
+	}
+	return 0;
+}
+
+static int is_channelvarset_included(const char *var_name)
+{
+	RAII_VAR(struct stasis_amqp_conf *, conf, NULL, ao2_cleanup);
+	const char *included = NULL;
+
+	conf = ao2_global_obj_ref(confs);
+
+	if(ast_hashtab_size(conf->global->include_channelvarset_events) == 0) {
+		return 1;
+	}
+
+	ast_debug(5, "processing ChannelVarset filter on variable '%s'\n", var_name);
+
+	if(!var_name) {
+		ast_debug(5, "ignoring ChannelVarset with no variable\n");
+		return 0;
+	}
+
+	included = ast_hashtab_lookup(conf->global->include_channelvarset_events, var_name);
+	if (included) {
+		ast_debug(5, "including ChannelVarset with variable '%s'\n", var_name);
+		return 1;
+	}
+
+	ast_debug(5, "ignoring ChannelVarset with variable '%s'\n", var_name);
+	return 0;
+}
+
 /*!
  * \brief Subscription callback for all channel messages.
  * \param data Data pointer given when creating the subscription.
@@ -235,6 +353,7 @@ static void stasis_channel_event_handler(void *data, struct stasis_subscription 
 	struct ast_json *json = NULL;
 	const char *event_name = NULL;
 	const char *routing_key_prefix = "stasis.channel";
+	const char *var_name = NULL;
 
 	if (stasis_subscription_final_message(sub, message)) {
 		return;
@@ -248,6 +367,19 @@ static void stasis_channel_event_handler(void *data, struct stasis_subscription 
 		ast_debug(5, "ignoring stasis event with no type\n");
 		ast_json_unref(json);
 		return;
+	}
+
+	ast_debug(4, "called stasis channel handler for event: '%s'\n", event_name);
+
+	if (is_event_excluded(event_name)) {
+		return;
+	}
+
+	if (strcmp(event_name, "ChannelVarset") == 0) {
+		var_name = ast_strdupa(ast_json_object_string_get(json, "variable"));
+		if (!is_channelvarset_included(var_name)) {
+			return;
+		}
 	}
 
 	bus_event = ast_json_pack("{s: s, s: o}", "name", event_name, "data", json);
@@ -321,16 +453,28 @@ static void stasis_app_event_handler(void *data, const char *app_name, struct as
 	RAII_VAR(struct ast_json *, headers, NULL, ast_json_unref);
 	RAII_VAR(char *, routing_key, NULL, ast_free);
 	const char *routing_key_prefix = "stasis.app";
+	const char *var_name = NULL;
 
 	ast_json_ref(stasis_event);  // Bumping the reference to this event to make sure it stays in memory until we're done
 
 	char *event_name = ast_strdupa(ast_json_object_string_get(stasis_event, "type"));
 
-	ast_debug(4, "called stasis amqp handler for application: '%s'\n", app_name);
-
 	if (!event_name) {
 		ast_debug(5, "ignoring stasis event with no type\n");
 		goto done;
+	}
+
+	ast_debug(4, "called stasis app handler for application: '%s' and event: '%s'\n", app_name, event_name);
+
+	if (is_event_excluded(event_name)) {
+		goto done;
+	}
+
+	if (strcmp(event_name, "ChannelVarset") == 0) {
+		var_name = ast_strdup(ast_json_object_string_get(stasis_event, "variable"));
+		if (!is_channelvarset_included(var_name)) {
+			goto done;
+		}
 	}
 
 	if (ast_json_object_set(stasis_event, "application", ast_json_string_create(app_name))) {
@@ -394,6 +538,12 @@ static void ami_event_handler(void *data, struct stasis_subscription *sub,
 
 	if (!(manager_blob = stasis_message_to_ami(message))) {
 		/* message has no AMI representation */
+		return;
+	}
+
+	ast_debug(4, "called ami handler for event: '%s'\n", manager_blob->manager_event);
+
+	if (is_event_excluded(manager_blob->manager_event)) {
 		return;
 	}
 
@@ -580,6 +730,11 @@ static int load_config(int reload)
 		global_options, "yes", OPT_BOOL_T, 1, FLDSET(struct stasis_amqp_global_conf, publish_ami_events));
 	aco_option_register(&cfg_info, "publish_channel_events", ACO_EXACT,
 		global_options, "yes", OPT_BOOL_T, 1, FLDSET(struct stasis_amqp_global_conf, publish_channel_events));
+	aco_option_register_custom(&cfg_info, "exclude_events", ACO_EXACT,
+		global_options, "", exclude_events_handler, 0);
+	aco_option_register_custom(&cfg_info, "include_channelvarset_events", ACO_EXACT,
+		global_options, "", include_channelvarset_events_handler, 0);
+
 
 
 	switch (aco_process_config(&cfg_info, reload)) {
