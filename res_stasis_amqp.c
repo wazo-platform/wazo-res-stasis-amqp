@@ -467,7 +467,7 @@ static void stasis_app_event_handler(void *data, const char *app_name, struct as
 	}
 
 	if (strcmp(event_name, "ChannelVarset") == 0) {
-		var_name = ast_strdup(ast_json_object_string_get(stasis_event, "variable"));
+		var_name = ast_strdupa(ast_json_object_string_get(stasis_event, "variable"));
 		if (!is_channelvarset_included(var_name)) {
 			goto done;
 		}
