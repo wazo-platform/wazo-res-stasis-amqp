@@ -5,7 +5,7 @@ services:
       TIMEOUT: "${INTEGRATION_TEST_TIMEOUT}"
 
   ari_amqp:
-    image: asterisk_amqp
+    image: wazoplatform/asterisk-amqp:local
     ports:
       - "5039"
     volumes:
