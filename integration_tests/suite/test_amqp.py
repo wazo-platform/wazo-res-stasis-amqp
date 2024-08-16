@@ -35,7 +35,6 @@ subscribe_args = {app_name_key: 'newstasisapplication'}
 
 
 class AssetLauncher(AssetLaunchingTestCase):
-
     assets_root = os.path.join(os.path.dirname(__file__), '..', 'assets')
     asset = 'amqp'
     service = 'ari_amqp'
@@ -144,7 +143,7 @@ def test_stasis_amqp_events_headers(ari):
 
     until.assert_(event_received, timeout=5)
 
-    def event_received():
+    def event_received_no_headers():
         assert_that(
             accumulator.accumulate(),
             only_contains(has_entries(data=has_entries(application=real_app))),
@@ -651,7 +650,7 @@ def test_stasis_amqp_events_topic(ari):
 
     until.assert_(event_received, timeout=5)
 
-    def event_received():
+    def event_received_2():
         assert_that(
             accumulator.accumulate(),
             only_contains(has_entries(data=has_entries(application=real_app))),

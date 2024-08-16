@@ -12,3 +12,10 @@ ignore = [
 [tool.isort]
 profile = "black"
 py_version = 39
+
+[tool.mypy]
+python_version = "3.10"
+show_error_codes = true
+check_untyped_defs = true
+warn_unused_configs = true
+ignore_missing_imports = true
