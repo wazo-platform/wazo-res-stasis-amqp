@@ -40,6 +40,14 @@ class AssetLauncher(AssetLaunchingTestCase):
     asset = 'amqp'
     service = 'ari_amqp'
 
+    @classmethod
+    def check_amqp_refcount(cls) -> None:
+        amqp_leaks = cls.run_container('refcount')
+        # This is the output of refcounter.py grepped on amqp.
+        # See full output with TEST_LOGS=verbose
+        # See https://docs.asterisk.org/Development/Debugging/Reference-Count-Debugging/
+        assert amqp_leaks == ''
+
 
 @pytest.fixture()
 def ari(request):
@@ -66,8 +74,19 @@ def ari(request):
         ['asterisk', '-rx', 'core set debug 5'],
         service_name='ari_amqp',
     )
+
     yield client
+
+    if os.environ.get('INTEGRATION_TEST_REFCOUNT') != 'false':
+        # necessary for refcounts to be accurate
+        AssetLauncher.docker_exec(
+            ['asterisk', '-rx', 'core stop gracefully'], service_name='ari_amqp'
+        )
+
     AssetLauncher.kill_containers()
+
+    if os.environ.get('INTEGRATION_TEST_REFCOUNT') != 'false':
+        AssetLauncher.check_amqp_refcount()
 
 
 @pytest.mark.parametrize('ari', ['headers'], indirect=True)

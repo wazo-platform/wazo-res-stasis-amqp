@@ -1,0 +1,6 @@
+FROM python:3.9-slim-bullseye AS compile-image
+LABEL maintainer="Wazo Maintainers <dev@wazo.community>"
+
+RUN apt-get update
+RUN apt-get install --yes curl
+RUN curl -s https://raw.githubusercontent.com/asterisk/asterisk/master/contrib/scripts/refcounter.py --output /usr/bin/refcounter.py

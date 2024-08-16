@@ -116,3 +116,23 @@ Event is push on this routing key `stasis.channel.<channel uniqueid>`
 - If you registering an application on the websocket with the same name of an
   application already registered with the AMQP events, the callback is on
   websocket.
+
+## Testing
+
+### Running integration tests
+
+You need Docker installed on your machine.
+
+```shell
+cd integration_tests
+pip install -r test-requirements.txt
+make test-setup
+make test
+```
+
+### Environment variables
+
+Running the integration tests is controlled by the following environment variables:
+
+* `INTEGRATION_TEST_TIMEOUT`: controls the startup timeout of each container
+* `INTEGRATION_TEST_REFCOUNT`: controls if tests should include a refcount check (default: `true`). Set to `false` to disable. Disabling this check will significantly improve test execution time.
