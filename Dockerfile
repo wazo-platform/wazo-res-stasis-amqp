@@ -1,7 +1,7 @@
 FROM debian:bullseye
 LABEL maintainer="Wazo Maintainers <dev@wazo.community>"
 
-ENV DEBIAN_FRONTEND noninteractive
+ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get -q update && apt-get -q -y install \
     apt-utils \
@@ -10,30 +10,15 @@ RUN apt-get -q update && apt-get -q -y install \
 RUN echo "deb http://mirror.wazo.community/debian/ wazo-dev-bullseye main" > /etc/apt/sources.list.d/wazo-dist.list
 RUN wget http://mirror.wazo.community/wazo_current.key -O - | apt-key add -
 RUN apt-get -q update && apt-get -q -y install \
-    wazo-libsccp \
-    git \
-    make \
-    gcc \
-    g++ \
     asterisk \
-    libedit-dev \
-    jq \
-    wazo-res-amqp
-
-RUN apt-get install --assume-yes \
-    openssl \
-    libxml2-dev \
-    libncurses5-dev \
-    uuid-dev \
-    sqlite3 \
-    libsqlite3-dev \
-    pkg-config \
-    libjansson-dev
-
-RUN apt-get install --assume-yes \
     asterisk-dev \
-    wazo-res-amqp-dev \
-    librabbitmq-dev
+    gcc \
+    jq \
+    librabbitmq-dev \
+    make \
+    wazo-libsccp \
+    wazo-res-amqp \
+    wazo-res-amqp-dev
 
 COPY . /usr/src/wazo-res-stasis-amqp
 WORKDIR /usr/src/wazo-res-stasis-amqp
