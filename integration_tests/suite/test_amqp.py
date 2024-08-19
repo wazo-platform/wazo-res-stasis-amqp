@@ -35,10 +35,17 @@ subscribe_args = {app_name_key: 'newstasisapplication'}
 
 
 class AssetLauncher(AssetLaunchingTestCase):
-
     assets_root = os.path.join(os.path.dirname(__file__), '..', 'assets')
     asset = 'amqp'
     service = 'ari_amqp'
+
+    @classmethod
+    def check_amqp_refcount(cls) -> None:
+        amqp_leaks = cls.run_container('refcount')
+        # This is the output of refcounter.py grepped on amqp.
+        # See full output with TEST_LOGS=verbose
+        # See https://docs.asterisk.org/Development/Debugging/Reference-Count-Debugging/
+        assert amqp_leaks == ''
 
 
 @pytest.fixture()
@@ -66,8 +73,19 @@ def ari(request):
         ['asterisk', '-rx', 'core set debug 5'],
         service_name='ari_amqp',
     )
+
     yield client
+
+    if os.environ.get('INTEGRATION_TEST_REFCOUNT') != 'false':
+        # necessary for refcounts to be accurate
+        AssetLauncher.docker_exec(
+            ['asterisk', '-rx', 'core stop gracefully'], service_name='ari_amqp'
+        )
+
     AssetLauncher.kill_containers()
+
+    if os.environ.get('INTEGRATION_TEST_REFCOUNT') != 'false':
+        AssetLauncher.check_amqp_refcount()
 
 
 @pytest.mark.parametrize('ari', ['headers'], indirect=True)
@@ -125,7 +143,7 @@ def test_stasis_amqp_events_headers(ari):
 
     until.assert_(event_received, timeout=5)
 
-    def event_received():
+    def event_received_no_headers():
         assert_that(
             accumulator.accumulate(),
             only_contains(has_entries(data=has_entries(application=real_app))),
@@ -632,7 +650,7 @@ def test_stasis_amqp_events_topic(ari):
 
     until.assert_(event_received, timeout=5)
 
-    def event_received():
+    def event_received_2():
         assert_that(
             accumulator.accumulate(),
             only_contains(has_entries(data=has_entries(application=real_app))),

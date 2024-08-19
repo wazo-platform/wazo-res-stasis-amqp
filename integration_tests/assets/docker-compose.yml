@@ -5,12 +5,13 @@ services:
       TIMEOUT: "${INTEGRATION_TEST_TIMEOUT}"
 
   ari_amqp:
-    image: asterisk_amqp
+    image: wazoplatform/asterisk-amqp:local
     ports:
       - "5039"
     volumes:
       - "./etc/asterisk:/etc/asterisk"
-    command: "asterisk -fTvvv"
+      - "asterisk-logs:/var/log/asterisk"
+    command: "asterisk -fTvvvvv"
 
   rabbitmq:
     image: rabbitmq
@@ -19,3 +20,13 @@ services:
     volumes:
       - type: tmpfs
         target: "/var/lib/rabbitmq"
+
+  refcount:
+    image: wazoplatform/asterisk-refcounter:local
+    volumes:
+      - "asterisk-logs:/var/log/asterisk"
+    # || true prevents grep from "failing" when no match is found
+    command: bash -c "python3 /usr/bin/refcounter.py /var/log/asterisk/refs | { grep -A5 Leaked | grep -B1 amqp || true; }"
+
+volumes:
+  asterisk-logs:

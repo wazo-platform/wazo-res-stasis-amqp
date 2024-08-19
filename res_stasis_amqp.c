@@ -207,8 +207,7 @@ static void conf_global_dtor(void *obj)
 
 static struct stasis_amqp_global_conf *conf_global_create(void)
 {
-	RAII_VAR(struct stasis_amqp_global_conf *, global, NULL, ao2_cleanup);
-	global = ao2_alloc(sizeof(*global), conf_global_dtor);
+	struct stasis_amqp_global_conf *global = ao2_alloc(sizeof(*global), conf_global_dtor);
 	if (!global) {
 		return NULL;
 	}
@@ -233,7 +232,7 @@ static struct stasis_amqp_global_conf *conf_global_create(void)
 	);
 
 	aco_set_defaults(&global_option, "global", global);
-	return ao2_bump(global);
+	return global;
 }
 
 
@@ -254,7 +253,7 @@ static void conf_dtor(void *obj)
 
 static void *conf_alloc(void)
 {
-	RAII_VAR(struct stasis_amqp_conf *, conf, NULL, ao2_cleanup);
+	struct stasis_amqp_conf *conf = NULL;
 	conf = ao2_alloc_options(sizeof(*conf), conf_dtor,
 		AO2_ALLOC_OPT_LOCK_NOLOCK);
 	if (!conf) {
@@ -262,9 +261,10 @@ static void *conf_alloc(void)
 	}
 	conf->global = conf_global_create();
 	if (!conf->global) {
+		ao2_cleanup(conf);
 		return NULL;
 	}
-	return ao2_bump(conf);
+	return conf;
 }
 
 CONFIG_INFO_STANDARD(cfg_info, confs, conf_alloc,
@@ -765,6 +765,7 @@ static int unload_module(void)
 		stasis_unsubscribe_and_join(manager);
 	}
 
+	ao2_global_obj_release(confs);
 	return 0;
 }
 

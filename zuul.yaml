@@ -1,15 +1,11 @@
-- job:
-    name: wazo-res-stasis-amqp-integration
-    description: Run res-stasis-amqp integration tests
-    parent: wazo-tox-integration-py39
-    run: zuul.d/run.yaml
-
 - project:
     templates:
+      - wazo-tox-linters-310
+      - wazo-tox-integration-py39
       - debian-packaging-bullseye
-    wazo-check:
-      jobs:
-        - wazo-res-stasis-amqp-integration
-    wazo-gate:
-      jobs:
-        - wazo-res-stasis-amqp-integration
+    vars:
+      docker_compose_services_override:
+        - ari_amqp
+      # bogey tox_package_name, allows install of sibling PRs
+      tox_package_name: res_stasis_amqp
+      integration_test_timeout: 30
