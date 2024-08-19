@@ -630,6 +630,7 @@ struct ast_eid *eid_copy(const struct ast_eid *eid)
 static int publish_to_amqp(struct ast_json *body, struct ast_json *headers, const char *routing_key)
 {
 	RAII_VAR(struct stasis_amqp_conf *, conf, NULL, ao2_cleanup);
+	RAII_VAR(struct ast_amqp_connection *, conn, NULL, ao2_cleanup);
 	RAII_VAR(char *, msg, NULL, ast_json_free);
 	struct ast_json_iter *iter = NULL;
 	amqp_table_t *header_table = NULL;
@@ -656,7 +657,7 @@ static int publish_to_amqp(struct ast_json *body, struct ast_json *headers, cons
 		return -1;
 	}
 
-	struct ast_amqp_connection *conn = ast_amqp_get_connection(connection_name);
+	conn = ast_amqp_get_connection(connection_name);
 	if (!conn) {
 		ast_log(LOG_ERROR, "Failed to get an AMQP connection for %s\n", connection_name);
 		return -1;
