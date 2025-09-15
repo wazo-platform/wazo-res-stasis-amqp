@@ -14,7 +14,7 @@ repos:
     rev: v1.5.1
     hooks:
       - id: mypy
-        language_version: "3.10"
+        language_version: "3.11"
         args: [--explicit-package-bases]
         additional_dependencies:
           - "alembic"
@@ -23,19 +23,18 @@ repos:
           - "types-pyyaml"
           - "types-requests"
           - "types-setuptools"
-# Automatically update to modern python (as modern as allowed by your Python version)
+  # Automatically update to modern python (as modern as allowed by your Python version)
   - repo: https://github.com/asottile/pyupgrade
     rev: v3.15.0
     hooks:
       - id: pyupgrade
-        args: [--py39-plus]
-# Automatically sort and format imports (in black compatible way)
+        args: [--py311-plus]
+  # Automatically sort and format imports (in black compatible way)
   - repo: https://github.com/pycqa/isort
     rev: 5.12.0
     hooks:
       - id: isort
         args: [--filter-files]
-# See https://pre-commit.com for more information
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.5.0
     hooks:
