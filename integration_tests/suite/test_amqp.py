@@ -1,4 +1,4 @@
-# Copyright 2019-2024 The Wazo Authors  (see the AUTHORS file)
+# Copyright 2019-2026 The Wazo Authors  (see the AUTHORS file)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import logging
@@ -41,7 +41,7 @@ class AssetLauncher(AssetLaunchingTestCase):
 
     @classmethod
     def check_amqp_refcount(cls) -> None:
-        amqp_leaks = cls.run_container('refcount')
+        amqp_leaks = cls.run_container('refcount', stderr=False)
         # This is the output of refcounter.py grepped on amqp.
         # See full output with TEST_LOGS=verbose
         # See https://docs.asterisk.org/Development/Debugging/Reference-Count-Debugging/
